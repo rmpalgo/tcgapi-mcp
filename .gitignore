@@ -1,0 +1,34 @@
+/bin/
+/dist/
+/coverage.out
+/coverage/
+/tmp/
+
+# macOS
+/.DS_Store
+
+# Editors
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Go workspace noise
+*.test
+*.out
+
+# Release/build artifacts
+/*.tar.gz
+/*.zip
+/*_checksums.txt
+
+# Local caches
+.cache/
+
+# Local docs output
+/docs/

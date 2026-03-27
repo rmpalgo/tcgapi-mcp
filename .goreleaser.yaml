@@ -1,0 +1,56 @@
+version: 2
+
+project_name: tcgapi-mcp
+
+builds:
+  - id: tcgapi-mcp
+    main: ./cmd/tcgapi-mcp
+    binary: tcgapi-mcp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: bundles
+    ids:
+      - tcgapi-mcp
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-devel"
+
+changelog:
+  use: github
+
+sboms:
+  - id: archive-sboms
+    ids:
+      - bundles
+    artifacts: archive
+    disable: false
+
+release:
+  draft: true

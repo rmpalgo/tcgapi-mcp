@@ -1,0 +1,1109 @@
+openapi: 3.0.3
+info:
+  title: Open TCG API by TCGTracking.com
+  description: |
+    Free, open API for trading card game product data, pricing, and SKU-level details
+    from TCGPlayer, Manapool, and CardTrader. Covers 55 game categories including
+    Magic: The Gathering, Pokemon, Yu-Gi-Oh!, Flesh & Blood, Lorcana, One Piece,
+    and many more.
+
+    ## Key Features
+    - **No authentication** required — fully open access
+    - **CORS enabled** — call directly from browser JavaScript
+    - **HTTP caching** via ETag, Last-Modified, and Cache-Control headers
+    - **No rate limits** — static JSON served from Cloudflare CDN
+    - **Daily price updates** — refreshed at 8 AM EST
+
+    ## Data Sources
+    - **TCGPlayer** — product data, market pricing, SKU-level detail
+    - **Manapool** — alternative marketplace pricing (primarily Magic)
+    - **CardTrader** — blueprint IDs, Cardmarket IDs, variant/language metadata
+
+    ## Architecture
+    Product data (names, images, IDs) is static and cached for 7+ days.
+    Pricing and SKU data is dynamic and updated daily. Separate endpoints
+    enable optimal client-side caching strategies.
+
+    ## Game-Specific Variations
+    While all endpoints share a common structure, certain fields and values
+    vary by game category:
+
+    | Game | Pricing Subtypes | SKU Variant Codes | CardTrader Language Prop |
+    |------|-----------------|-------------------|------------------------|
+    | Magic | Normal, Foil | N, F | mtg_language, mtg_foil |
+    | Pokemon | Normal, Holofoil, Reverse Holofoil | N, H, R | pokemon_language, pokemon_reverse |
+    | Yu-Gi-Oh! | Normal, 1st Edition | N, 1E | yugioh_language, first_edition |
+    | Flesh & Blood | Normal | N, CF, RF | — |
+    | Lorcana | Normal, Cold Foil, Holofoil | N, CF, H | lorcana_language |
+    | One Piece | Normal, Foil | N, F | — |
+
+  version: "1.1"
+  contact:
+    name: TCGTracking.com
+    url: https://tcgtracking.com
+  license:
+    name: Free / Open Access
+    url: https://tcgtracking.com/tcgapi/
+
+servers:
+  - url: https://tcgtracking.com/tcgapi/v1
+    description: Production CDN (Cloudflare)
+
+paths:
+  /meta:
+    get:
+      operationId: getMeta
+      summary: API status and statistics
+      description: |
+        Returns API version, total counts, last update timestamps, and
+        export statistics. Useful for health checks and understanding
+        data freshness.
+      tags:
+        - Meta
+      responses:
+        "200":
+          description: API metadata
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (5 min TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaResponse"
+
+  /categories:
+    get:
+      operationId: getCategories
+      summary: All game categories
+      description: |
+        Returns every game category with product/set counts and the
+        API URL for each category's sets. Categories map to TCGPlayer
+        game IDs. Currently 55 categories.
+      tags:
+        - Categories
+      responses:
+        "200":
+          description: List of all game categories
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (7 day TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoriesResponse"
+
+  /{categoryId}/sets:
+    get:
+      operationId: getCategorySets
+      summary: All sets for a game category
+      description: |
+        Returns every set within a game category, including product/SKU counts,
+        modification timestamps, and URLs to products, pricing, and SKU endpoints.
+      tags:
+        - Sets
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+      responses:
+        "200":
+          description: List of sets for this category
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (7 day TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetsResponse"
+
+  /{categoryId}/sets/{setId}:
+    get:
+      operationId: getSetProducts
+      summary: Product data for a set
+      description: |
+        Returns static product data for every product in a set — names, images,
+        collector numbers, rarity, external IDs (Scryfall, MTGJSON, CardTrader,
+        Cardmarket), and CardTrader variant metadata.
+
+        **Game-specific fields:**
+        - **Magic** populates `scryfall_id`, `mtgjson_uuid`, `colors`, `mana_value`, and `finishes`.
+        - **Pokemon, Yu-Gi-Oh!, Lorcana, etc.** leave Magic-specific ID fields as `null`.
+        - **CardTrader properties** vary by game (e.g., `mtg_foil` for Magic,
+          `pokemon_reverse` for Pokemon, `first_edition` for Yu-Gi-Oh!).
+        - **Presale items** include `is_presale`, `presale_release_date`, and `presale_note`.
+      tags:
+        - Products
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+        - $ref: "#/components/parameters/setId"
+      responses:
+        "200":
+          description: Product listing for this set
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (7 day TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductsResponse"
+
+  /{categoryId}/sets/{setId}/pricing:
+    get:
+      operationId: getSetPricing
+      summary: Pricing data for a set
+      description: |
+        Returns TCGPlayer and Manapool pricing for every product in a set,
+        keyed by product ID. TCGPlayer prices are broken down by subtype.
+
+        **Subtypes vary by game:**
+        - **Magic:** Normal, Foil
+        - **Pokemon:** Normal, Holofoil, Reverse Holofoil
+        - **Yu-Gi-Oh!:** Normal, 1st Edition
+        - **Flesh & Blood:** Normal
+        - **Lorcana:** Normal, Cold Foil, Holofoil
+        - **One Piece:** Normal, Foil
+
+        Iterate over the `tcg` object keys to discover all subtypes for each product.
+      tags:
+        - Pricing
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+        - $ref: "#/components/parameters/setId"
+      responses:
+        "200":
+          description: Pricing data for all products in this set
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (1 day TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricingResponse"
+
+  /{categoryId}/sets/{setId}/skus:
+    get:
+      operationId: getSetSkus
+      summary: SKU-level pricing detail for a set
+      description: |
+        Returns granular SKU-level pricing for every condition, variant, and
+        language combination. Nested by product ID → SKU ID.
+
+        **Variant codes vary by game:**
+        - **Magic:** N (Normal), F (Foil)
+        - **Pokemon:** N (Normal), H (Holofoil), R (Reverse Holofoil)
+        - **Yu-Gi-Oh!:** N (Normal), 1E (1st Edition)
+        - **Flesh & Blood:** N (Normal), CF (Cold Foil), RF (Rainbow Foil)
+        - **Lorcana:** N (Normal), CF (Cold Foil), H (Holofoil)
+        - **One Piece:** N (Normal), F (Foil)
+
+        **Condition codes (all games):** NM, LP, MP, HP, DMG
+
+        **Language codes:** EN, JP, FR, DE, IT, ES, PT, RU, KO, CS, CT
+
+        Some SKUs may have partial pricing data (e.g., only `cnd`/`var`/`lng`
+        without `mkt`/`low`/`hi`/`cnt` if no listings exist).
+      tags:
+        - SKUs
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+        - $ref: "#/components/parameters/setId"
+      responses:
+        "200":
+          description: SKU-level pricing for all products in this set
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (1 day TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkusResponse"
+
+  /{categoryId}/search:
+    get:
+      operationId: searchSets
+      summary: Search sets by name or abbreviation
+      description: |
+        Search for sets within a game category by name or abbreviation.
+        Returns matching set objects with full metadata including product
+        counts and API URLs. Case-insensitive partial matching.
+      tags:
+        - Search
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+        - name: q
+          in: query
+          required: true
+          description: Search query — matches against set name and abbreviation
+          schema:
+            type: string
+            minLength: 1
+          example: foundations
+      responses:
+        "200":
+          description: Matching sets
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Caching directive (5 min TTL)
+            ETag:
+              schema:
+                type: string
+            Last-Modified:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+
+components:
+  parameters:
+    categoryId:
+      name: categoryId
+      in: path
+      required: true
+      description: |
+        Game category ID from the `/categories` endpoint.
+        Common IDs: 1 (Magic), 2 (Yu-Gi-Oh!), 3 (Pokemon), 62 (Flesh & Blood),
+        68 (One Piece), 71 (Lorcana), 85 (Pokemon Japan).
+      schema:
+        type: integer
+      examples:
+        magic:
+          value: 1
+          summary: "Magic: The Gathering"
+        yugioh:
+          value: 2
+          summary: "Yu-Gi-Oh!"
+        pokemon:
+          value: 3
+          summary: "Pokemon"
+
+    setId:
+      name: setId
+      in: path
+      required: true
+      description: Set ID from the `/{categoryId}/sets` endpoint.
+      schema:
+        type: integer
+      examples:
+        mtgFoundations:
+          value: 23556
+          summary: "MTG: Foundations"
+        pokemonSurgingSparks:
+          value: 23651
+          summary: "Pokemon: Surging Sparks"
+
+  schemas:
+    # ──────────────────────────────────────
+    #  META
+    # ──────────────────────────────────────
+    MetaResponse:
+      type: object
+      required:
+        - last_updated
+        - pricing_updated
+        - total_categories
+        - total_sets
+        - total_products
+        - version
+        - documentation
+        - file_types
+        - last_export_stats
+      properties:
+        last_updated:
+          type: string
+          format: date-time
+          description: Timestamp of last data export
+          example: "2026-03-27T04:31:21-04:00"
+        pricing_updated:
+          type: string
+          format: date-time
+          description: Timestamp of last pricing update
+          example: "2026-03-27T04:31:21-04:00"
+        total_categories:
+          type: integer
+          description: Total number of game categories
+          example: 55
+        total_sets:
+          type: integer
+          description: Total number of sets across all categories
+          example: 3474
+        total_products:
+          type: integer
+          description: Total number of products across all categories
+          example: 425327
+        version:
+          type: string
+          description: API version
+          example: "1.1"
+        documentation:
+          type: string
+          description: Relative URL to API documentation
+          example: "/tcgapi/docs"
+        file_types:
+          type: object
+          description: Description of file naming conventions
+          properties:
+            static:
+              type: string
+              example: "{set_id}.json - Product data, cache for weeks"
+            pricing:
+              type: string
+              example: "{set_id}-pricing.json - Prices, updated daily"
+            skus:
+              type: string
+              example: "{set_id}-skus.json - SKU details with prices, updated daily"
+        last_export_stats:
+          type: object
+          description: Statistics from the most recent data export run
+          properties:
+            sets_checked:
+              type: integer
+              example: 3554
+            static_updated:
+              type: integer
+              example: 52
+            static_skipped:
+              type: integer
+              example: 3422
+            pricing_updated:
+              type: integer
+              example: 402
+            skus_updated:
+              type: integer
+              example: 55
+            products_exported:
+              type: integer
+              example: 23004
+
+    # ──────────────────────────────────────
+    #  CATEGORIES
+    # ──────────────────────────────────────
+    CategoriesResponse:
+      type: object
+      required:
+        - categories
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    Category:
+      type: object
+      required:
+        - id
+        - name
+        - display_name
+        - product_count
+        - set_count
+        - api_url
+      properties:
+        id:
+          type: integer
+          description: Unique category ID (maps to TCGPlayer game ID)
+          example: 1
+        name:
+          type: string
+          description: Short category name
+          example: Magic
+        display_name:
+          type: string
+          description: Full display name
+          example: "Magic: The Gathering"
+        product_count:
+          type: integer
+          description: Total products in this category
+          example: 112718
+        set_count:
+          type: integer
+          description: Total sets in this category
+          example: 437
+        api_url:
+          type: string
+          description: Relative URL to this category's sets endpoint
+          example: "/tcgapi/v1/1/sets"
+
+    # ──────────────────────────────────────
+    #  SETS
+    # ──────────────────────────────────────
+    SetsResponse:
+      type: object
+      required:
+        - category_id
+        - category_name
+        - generated_at
+        - sets
+      properties:
+        category_id:
+          type: integer
+          description: Category ID
+          example: 1
+        category_name:
+          type: string
+          description: Category name
+          example: Magic
+        generated_at:
+          type: string
+          format: date-time
+          description: When this response was generated
+          example: "2026-03-25T04:30:43-04:00"
+        sets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Set"
+
+    Set:
+      type: object
+      required:
+        - id
+        - name
+        - is_supplemental
+        - published_on
+        - modified_on
+        - product_count
+        - sku_count
+        - api_url
+        - pricing_url
+        - skus_url
+      properties:
+        id:
+          type: integer
+          description: Unique set ID
+          example: 23556
+        name:
+          type: string
+          description: Full set name
+          example: Foundations
+        abbreviation:
+          type: string
+          nullable: true
+          description: Set abbreviation/code
+          example: FDN
+        is_supplemental:
+          type: boolean
+          description: Whether this is a supplemental set
+          example: false
+        published_on:
+          type: string
+          format: date
+          description: Release date
+          example: "2024-11-15"
+        modified_on:
+          type: string
+          description: Last modification timestamp
+          example: "2025-05-21 17:04:29"
+        product_count:
+          type: integer
+          description: Number of products in this set
+          example: 780
+        sku_count:
+          type: integer
+          description: Number of SKUs in this set
+          example: 29491
+        products_modified:
+          type: string
+          format: date-time
+          description: When product data was last updated
+          example: "2026-01-29T11:52:32-05:00"
+        pricing_modified:
+          type: string
+          format: date-time
+          description: When pricing data was last updated
+          example: "2026-03-27T08:04:10-04:00"
+        skus_modified:
+          type: string
+          format: date-time
+          description: When SKU data was last updated
+          example: "2026-03-27T09:30:04-04:00"
+        api_url:
+          type: string
+          description: Relative URL to product data
+          example: "/tcgapi/v1/1/sets/23556"
+        pricing_url:
+          type: string
+          description: Relative URL to pricing data
+          example: "/tcgapi/v1/1/sets/23556/pricing"
+        skus_url:
+          type: string
+          description: Relative URL to SKU data
+          example: "/tcgapi/v1/1/sets/23556/skus"
+
+    # ──────────────────────────────────────
+    #  PRODUCTS
+    # ──────────────────────────────────────
+    ProductsResponse:
+      type: object
+      required:
+        - set_id
+        - set_name
+        - set_abbr
+        - set_released
+        - product_count
+        - data_modified
+        - file_generated
+        - pricing_url
+        - products
+      properties:
+        set_id:
+          type: integer
+          description: Set ID
+          example: 23556
+        set_name:
+          type: string
+          description: Set name
+          example: Foundations
+        set_abbr:
+          type: string
+          description: Set abbreviation
+          example: FDN
+        set_released:
+          type: string
+          format: date
+          description: Set release date
+          example: "2024-11-15"
+        product_count:
+          type: integer
+          description: Number of products in this response
+          example: 780
+        data_modified:
+          type: string
+          format: date-time
+          description: When the source data was last modified
+          example: "2026-01-29T09:01:38-05:00"
+        file_generated:
+          type: string
+          format: date-time
+          description: When this JSON file was generated
+          example: "2026-01-29T11:52:32-05:00"
+        pricing_url:
+          type: string
+          description: Relative URL to pricing for this set
+          example: "/tcgapi/v1/1/sets/23556/pricing"
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+
+    Product:
+      type: object
+      description: |
+        A product (card, sealed product, accessory, etc.) within a set.
+
+        Fields vary by game category:
+        - `scryfall_id` and `mtgjson_uuid` are populated only for Magic.
+        - `colors` and `mana_value` are present only for Magic cards.
+        - `finishes` appears for Magic and some other games.
+        - `cardtrader` properties vary by game (see CardTraderEntry).
+        - `is_presale`, `presale_release_date`, and `presale_note` appear
+          for products not yet released.
+      required:
+        - id
+        - name
+        - clean_name
+        - image_url
+        - tcgplayer_url
+      properties:
+        id:
+          type: integer
+          description: TCGPlayer product ID
+          example: 557921
+        name:
+          type: string
+          description: Product name
+          example: Llanowar Elves
+        clean_name:
+          type: string
+          description: Normalized name for search (special characters removed)
+          example: Llanowar Elves
+        set_name:
+          type: string
+          description: Name of the set this product belongs to
+          example: Foundations
+        set_abbr:
+          type: string
+          description: Abbreviation of the set this product belongs to
+          example: FDN
+        number:
+          type: string
+          nullable: true
+          description: Collector number within the set
+          example: "227"
+        rarity:
+          type: string
+          nullable: true
+          description: |
+            Card rarity. Format varies by game:
+            - **Magic:** Single letter — M (Mythic), R (Rare), U (Uncommon), C (Common)
+            - **Yu-Gi-Oh!:** Full text — "Quarter Century Secret Rare", "Ultra Rare", etc.
+            - **Other games:** Varies
+          example: C
+        image_url:
+          type: string
+          format: uri
+          description: TCGPlayer CDN product image URL
+          example: "https://tcgplayer-cdn.tcgplayer.com/product/557921_200w.jpg"
+        image_count:
+          type: integer
+          description: Number of images available for this product
+          example: 2
+        tcgplayer_url:
+          type: string
+          format: uri
+          description: Affiliate link to TCGPlayer product page
+          example: "https://partner.tcgplayer.com/c/6207277/1830156/21018?u=..."
+        manapool_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Link to Manapool marketplace listing (primarily Magic)
+          example: "https://manapool.com/card/fdn/227"
+        scryfall_id:
+          type: string
+          nullable: true
+          description: Scryfall card UUID (Magic only)
+          example: "6a0b230b-2b1f-4b59-9345-12345abcdef"
+        mtgjson_uuid:
+          type: string
+          nullable: true
+          description: MTGJSON universal card UUID (Magic only)
+          example: "1650c6e0-abcd-1234-efgh-567890abcdef"
+        cardmarket_id:
+          type: integer
+          nullable: true
+          description: Cardmarket product ID (from CardTrader)
+          example: 12345
+        cardtrader_id:
+          type: integer
+          nullable: true
+          description: CardTrader blueprint ID
+          example: 67890
+        colors:
+          type: array
+          description: Card colors (Magic only)
+          items:
+            type: string
+            enum: [W, U, B, R, G]
+          example: ["G"]
+        mana_value:
+          type: number
+          nullable: true
+          description: Converted mana cost / mana value (Magic only)
+          example: 1
+        finishes:
+          type: array
+          description: Available finishes for this product
+          items:
+            type: string
+          example: ["nonfoil", "foil"]
+        is_presale:
+          type: boolean
+          description: Whether this product is a presale item (not yet released)
+          example: false
+        presale_release_date:
+          type: string
+          format: date
+          nullable: true
+          description: Expected release date for presale items
+          example: "2026-06-05"
+        presale_note:
+          type: string
+          nullable: true
+          description: Presale disclaimer text
+          example: "This product is a Presale item with an estimated shipping date of 06/05/2026. Please keep in mind card details, including rarity and card name, may change up until release date as information is updated."
+        cardtrader:
+          type: array
+          nullable: true
+          description: |
+            CardTrader blueprint data with variant information.
+            Match rate is ~87-95% across games. When available, includes
+            expansion details, finish types, available languages, and
+            game-specific listing properties.
+          items:
+            $ref: "#/components/schemas/CardTraderEntry"
+
+    CardTraderEntry:
+      type: object
+      description: |
+        A CardTrader blueprint match for a product. Properties in the
+        `properties` array vary by game category.
+      properties:
+        id:
+          type: integer
+          description: CardTrader blueprint ID
+          example: 67890
+        match_type:
+          type: string
+          description: How this match was made
+          enum:
+            - scryfall
+            - tcgplayer
+          example: scryfall
+        expansion:
+          type: string
+          description: CardTrader expansion name
+          example: Foundations
+        expansion_code:
+          type: string
+          description: CardTrader expansion code
+          example: fdn
+        collector_number:
+          type: string
+          nullable: true
+          description: CardTrader's collector number for this product
+          example: "227"
+        finishes:
+          type: array
+          description: Available finishes on CardTrader
+          items:
+            type: string
+          example: ["normal", "foil"]
+        languages:
+          type: array
+          description: Available language codes on CardTrader
+          items:
+            type: string
+          example: ["en", "de", "fr", "it", "es", "pt"]
+        properties:
+          type: array
+          description: |
+            Editable listing properties. These vary by game:
+
+            **Common to most games:**
+            - `condition` — Near Mint, Slightly Played, Moderately Played, Played, Poor
+            - `signed` — boolean
+            - `altered` — boolean
+
+            **Magic-specific:**
+            - `mtg_language` — en, de, fr, it, es, pt, jp, ru, ko, cs, ct
+            - `mtg_foil` — boolean
+
+            **Pokemon-specific:**
+            - `pokemon_language` — en, fr, de, it, pt, es, nl, ru, pl, sv
+            - `pokemon_reverse` — boolean
+            - `first_edition` — boolean
+
+            **Yu-Gi-Oh!-specific:**
+            - `yugioh_language` — en, fr, de, it, es, pt
+            - `first_edition` — boolean
+
+            **Lorcana-specific:**
+            - `lorcana_language` — en, fr, it, de, es, jp, zh-CN
+          items:
+            $ref: "#/components/schemas/CardTraderProperty"
+
+    CardTraderProperty:
+      type: object
+      description: A single editable property for CardTrader listings
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: |
+            Property identifier. Known values include:
+            condition, signed, altered, mtg_language, mtg_foil,
+            pokemon_language, pokemon_reverse, first_edition,
+            yugioh_language, lorcana_language, sealed
+          example: condition
+        type:
+          type: string
+          description: Data type of the property
+          enum:
+            - string
+            - boolean
+          example: string
+        default_value:
+          description: Default value for this property
+          oneOf:
+            - type: string
+            - type: boolean
+          example: "Near Mint"
+        possible_values:
+          type: array
+          description: All valid values for this property
+          items:
+            oneOf:
+              - type: string
+              - type: boolean
+          example: ["Near Mint", "Slightly Played", "Moderately Played", "Played", "Poor"]
+
+    # ──────────────────────────────────────
+    #  PRICING
+    # ──────────────────────────────────────
+    PricingResponse:
+      type: object
+      required:
+        - set_id
+        - updated
+        - prices
+      properties:
+        set_id:
+          type: integer
+          description: Set ID
+          example: 23556
+        updated:
+          type: string
+          format: date-time
+          description: When pricing was last updated
+          example: "2026-03-27T08:04:10-04:00"
+        prices:
+          type: object
+          description: |
+            Pricing data keyed by product ID (as string).
+            Each product contains TCGPlayer pricing by subtype,
+            optional Manapool pricing, and Manapool quantity.
+          additionalProperties:
+            $ref: "#/components/schemas/ProductPricing"
+
+    ProductPricing:
+      type: object
+      description: Pricing data for a single product
+      properties:
+        tcg:
+          type: object
+          description: |
+            TCGPlayer prices by subtype. Subtype keys vary by game:
+            - **Magic:** "Normal", "Foil"
+            - **Pokemon:** "Normal", "Holofoil", "Reverse Holofoil"
+            - **Yu-Gi-Oh!:** "Normal", "1st Edition"
+            - **Flesh & Blood:** "Normal"
+            - **Lorcana:** "Normal", "Cold Foil", "Holofoil"
+            - **One Piece:** "Normal", "Foil"
+
+            Iterate over object keys to discover all subtypes for a product.
+          additionalProperties:
+            $ref: "#/components/schemas/TcgSubtypePricing"
+        manapool:
+          type: object
+          nullable: true
+          description: |
+            Manapool marketplace lowest prices. Primarily available for Magic.
+            Keys are finish types (e.g., "normal", "foil", "etched").
+          additionalProperties:
+            type: number
+            format: double
+          example:
+            normal: 0.15
+            foil: 1.25
+            etched: 3.50
+        mp_qty:
+          type: integer
+          nullable: true
+          description: Total quantity available on Manapool
+          example: 1464
+
+    TcgSubtypePricing:
+      type: object
+      description: TCGPlayer pricing for a single subtype
+      properties:
+        low:
+          type: number
+          format: double
+          nullable: true
+          description: Lowest listing price on TCGPlayer
+          example: 0.18
+        market:
+          type: number
+          format: double
+          nullable: true
+          description: TCGPlayer market price
+          example: 0.22
+
+    # ──────────────────────────────────────
+    #  SKUs
+    # ──────────────────────────────────────
+    SkusResponse:
+      type: object
+      required:
+        - set_id
+        - updated
+        - sku_count
+        - product_count
+        - products
+      properties:
+        set_id:
+          type: integer
+          description: Set ID
+          example: 23556
+        updated:
+          type: string
+          format: date-time
+          description: When SKU data was last updated
+          example: "2026-03-27T09:30:04-04:00"
+        sku_count:
+          type: integer
+          description: Total SKUs in this set
+          example: 29491
+        product_count:
+          type: integer
+          description: Number of products with SKU data
+          example: 780
+        products:
+          type: object
+          description: |
+            SKU data nested by product ID → SKU ID.
+            Both keys are strings (stringified integers).
+          additionalProperties:
+            type: object
+            description: SKUs for a single product, keyed by TCGPlayer SKU ID
+            additionalProperties:
+              $ref: "#/components/schemas/Sku"
+
+    Sku:
+      type: object
+      description: |
+        A single SKU representing a specific condition + variant + language
+        combination for a product. Pricing fields may be absent if no
+        listings exist for this SKU.
+      required:
+        - cnd
+        - var
+        - lng
+      properties:
+        cnd:
+          type: string
+          description: |
+            Condition code:
+            - NM = Near Mint
+            - LP = Lightly Played
+            - MP = Moderately Played
+            - HP = Heavily Played
+            - DMG = Damaged
+          enum: [NM, LP, MP, HP, DMG]
+          example: NM
+        var:
+          type: string
+          description: |
+            Variant/finish code. Values vary by game:
+            - **Magic:** N (Normal), F (Foil)
+            - **Pokemon:** N (Normal), H (Holofoil), R (Reverse Holofoil)
+            - **Yu-Gi-Oh!:** N (Normal), 1E (1st Edition)
+            - **Flesh & Blood:** N (Normal), CF (Cold Foil), RF (Rainbow Foil)
+            - **Lorcana:** N (Normal), CF (Cold Foil), H (Holofoil)
+            - **One Piece:** N (Normal), F (Foil)
+          example: N
+        lng:
+          type: string
+          description: |
+            Language code:
+            EN (English), JP (Japanese), FR (French), DE (German),
+            IT (Italian), ES (Spanish), PT (Portuguese), RU (Russian),
+            KO (Korean), CS (Chinese Simplified), CT (Chinese Traditional)
+          example: EN
+        mkt:
+          type: number
+          format: double
+          nullable: true
+          description: TCGPlayer market price for this SKU
+          example: 0.34
+        low:
+          type: number
+          format: double
+          nullable: true
+          description: Lowest listing price for this SKU
+          example: 0.25
+        hi:
+          type: number
+          format: double
+          nullable: true
+          description: Highest listing price for this SKU
+          example: 0.50
+        cnt:
+          type: integer
+          nullable: true
+          description: Number of active listings for this SKU
+          example: 8
+
+    # ──────────────────────────────────────
+    #  SEARCH
+    # ──────────────────────────────────────
+    SearchResponse:
+      type: object
+      required:
+        - query
+        - category_id
+        - count
+        - sets
+      properties:
+        query:
+          type: string
+          description: The search query that was executed
+          example: foundations
+        category_id:
+          type: integer
+          description: Category that was searched
+          example: 1
+        count:
+          type: integer
+          description: Number of matching sets
+          example: 4
+        sets:
+          type: array
+          description: Matching sets (same structure as sets listing)
+          items:
+            $ref: "#/components/schemas/Set"
+
+tags:
+  - name: Meta
+    description: API status and health information
+  - name: Categories
+    description: Game category listings
+  - name: Sets
+    description: Set listings within a game category
+  - name: Products
+    description: Static product data (names, images, IDs, CardTrader metadata)
+  - name: Pricing
+    description: Dynamic pricing data (TCGPlayer + Manapool)
+  - name: SKUs
+    description: Granular SKU-level pricing by condition, variant, and language
+  - name: Search
+    description: Search sets by name or abbreviation
