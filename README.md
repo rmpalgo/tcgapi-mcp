@@ -19,6 +19,7 @@ This project is currently a read-only MCP server with:
 - [Configuration](#configuration)
 - [MCP Client Compatibility](#mcp-client-compatibility)
 - [Available Capabilities](#available-capabilities)
+- [Example Output](#example-output)
 - [Freshness and Data Guidance](#freshness-and-data-guidance)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
@@ -109,6 +110,22 @@ Restart Claude Desktop and try prompts like:
 - "Get products for set ID 41036 in Pokemon."
 - "Get pricing for that set."
 - "Compare SKU variants for this card."
+
+## Example Output
+
+Example prompt:
+
+> Show me all the ME: Ascended Heroes singles over $100 and make sure the pricing was updated today.
+
+Example Claude Desktop-style result captured on March 27, 2026:
+
+![img.png](assets/claude_code.png)
+
+Example summary:
+
+> The "Mega Hyper Rare" rarity tier is new. Mega Charizard Y ex and Mega Dragonite ex appear near the top of the list, while Mega Gengar ex is the set's chase card at over $1,000.
+
+Live results will vary over time. For recency-sensitive answers, hosts should cite the returned `updated_at` field rather than assume current pricing freshness.
 
 ## Configuration
 
