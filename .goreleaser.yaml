@@ -43,7 +43,7 @@ snapshot:
   version_template: "{{ incpatch .Version }}-devel"
 
 changelog:
-  use: github
+  use: github-native
 
 sboms:
   - id: archive-sboms
@@ -53,4 +53,9 @@ sboms:
     disable: false
 
 release:
+  name_template: "tcgapi-mcp {{ .Tag }}"
   draft: true
+  replace_existing_draft: true
+  use_existing_draft: true
+  replace_existing_artifacts: true
+  include_meta: true
