@@ -10,13 +10,13 @@ import (
 	"github.com/rmpalgo/tcgapi-mcp/internal/tcgapi/generated"
 )
 
-func (c *Client) SetPricing(ctx context.Context, categoryID, setID int, productID *int) ([]domain.PricingResult, error) {
+func (c *Client) SetPricing(ctx context.Context, categoryID, setID int, productID *int) (domain.PricingSnapshot, error) {
 	resp, err := c.raw.GetSetPricingWithResponse(ctx, generated.CategoryId(categoryID), generated.SetId(setID))
 	if err != nil {
-		return nil, fmt.Errorf("get set pricing: %w", err)
+		return domain.PricingSnapshot{}, fmt.Errorf("get set pricing: %w", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, unexpectedStatus("get set pricing", resp.StatusCode(), resp.Body)
+		return domain.PricingSnapshot{}, unexpectedStatus("get set pricing", resp.StatusCode(), resp.Body)
 	}
 
 	ids := make([]string, 0, len(resp.JSON200.Prices))
@@ -63,5 +63,8 @@ func (c *Client) SetPricing(ctx context.Context, categoryID, setID int, productI
 		})
 	}
 
-	return out, nil
+	return domain.PricingSnapshot{
+		UpdatedAt: formatTime(resp.JSON200.Updated),
+		Prices:    out,
+	}, nil
 }

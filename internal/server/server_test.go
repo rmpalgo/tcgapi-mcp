@@ -37,8 +37,8 @@ type fakeAPI struct {
 	categorySets map[int][]domain.SetSummary
 	searchSets   map[int][]domain.SetSummary
 	products     map[setKey][]domain.Product
-	pricing      map[setKey][]domain.PricingResult
-	skus         map[setKey][]domain.SKUResult
+	pricing      map[setKey]domain.PricingSnapshot
+	skus         map[setKey]domain.SKUSnapshot
 
 	searchCalls  []searchCall
 	pricingCalls []productFilterCall
@@ -69,16 +69,18 @@ func (f *fakeAPI) SetProducts(_ context.Context, categoryID, setID int) ([]domai
 	return append([]domain.Product(nil), f.products[setKey{categoryID: categoryID, setID: setID}]...), nil
 }
 
-func (f *fakeAPI) SetPricing(_ context.Context, categoryID, setID int, productID *int) ([]domain.PricingResult, error) {
+func (f *fakeAPI) SetPricing(_ context.Context, categoryID, setID int, productID *int) (domain.PricingSnapshot, error) {
 	f.pricingCalls = append(f.pricingCalls, productFilterCall{
 		categoryID: categoryID,
 		setID:      setID,
 		productID:  cloneInt(productID),
 	})
 
-	products := append([]domain.PricingResult(nil), f.pricing[setKey{categoryID: categoryID, setID: setID}]...)
+	snapshot := f.pricing[setKey{categoryID: categoryID, setID: setID}]
+	products := append([]domain.PricingResult(nil), snapshot.Prices...)
 	if productID == nil {
-		return products, nil
+		snapshot.Prices = products
+		return snapshot, nil
 	}
 
 	filtered := make([]domain.PricingResult, 0, len(products))
@@ -87,19 +89,22 @@ func (f *fakeAPI) SetPricing(_ context.Context, categoryID, setID int, productID
 			filtered = append(filtered, result)
 		}
 	}
-	return filtered, nil
+	snapshot.Prices = filtered
+	return snapshot, nil
 }
 
-func (f *fakeAPI) SetSKUs(_ context.Context, categoryID, setID int, productID *int) ([]domain.SKUResult, error) {
+func (f *fakeAPI) SetSKUs(_ context.Context, categoryID, setID int, productID *int) (domain.SKUSnapshot, error) {
 	f.skuCalls = append(f.skuCalls, productFilterCall{
 		categoryID: categoryID,
 		setID:      setID,
 		productID:  cloneInt(productID),
 	})
 
-	products := append([]domain.SKUResult(nil), f.skus[setKey{categoryID: categoryID, setID: setID}]...)
+	snapshot := f.skus[setKey{categoryID: categoryID, setID: setID}]
+	products := append([]domain.SKUResult(nil), snapshot.Products...)
 	if productID == nil {
-		return products, nil
+		snapshot.Products = products
+		return snapshot, nil
 	}
 
 	filtered := make([]domain.SKUResult, 0, len(products))
@@ -108,7 +113,8 @@ func (f *fakeAPI) SetSKUs(_ context.Context, categoryID, setID int, productID *i
 			filtered = append(filtered, result)
 		}
 	}
-	return filtered, nil
+	snapshot.Products = filtered
+	return snapshot, nil
 }
 
 func TestNewRegistersSurface(t *testing.T) {
@@ -282,6 +288,9 @@ func TestPricingAndSKUsHonorProductID(t *testing.T) {
 	if got := len(pricing.Prices); got != 1 {
 		t.Fatalf("len(pricing.Prices) = %d, want 1", got)
 	}
+	if pricing.UpdatedAt != "2026-03-27T12:00:00Z" {
+		t.Fatalf("pricing.UpdatedAt = %q, want 2026-03-27T12:00:00Z", pricing.UpdatedAt)
+	}
 	if pricing.Prices[0].ProductID != productID {
 		t.Fatalf("pricing.Prices[0].ProductID = %d, want %d", pricing.Prices[0].ProductID, productID)
 	}
@@ -304,6 +313,9 @@ func TestPricingAndSKUsHonorProductID(t *testing.T) {
 	skus := decodeStructured[getSetSKUsOutput](t, result.StructuredContent)
 	if got := len(skus.Products); got != 1 {
 		t.Fatalf("len(skus.Products) = %d, want 1", got)
+	}
+	if skus.UpdatedAt != "2026-03-27T13:00:00Z" {
+		t.Fatalf("skus.UpdatedAt = %q, want 2026-03-27T13:00:00Z", skus.UpdatedAt)
 	}
 	if skus.Products[0].ProductID != productID {
 		t.Fatalf("skus.Products[0].ProductID = %d, want %d", skus.Products[0].ProductID, productID)
@@ -363,6 +375,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	if got := len(pricingValue.Prices); got != 2 {
 		t.Fatalf("len(pricingValue.Prices) = %d, want 2", got)
 	}
+	if pricingValue.UpdatedAt != "2026-03-27T12:00:00Z" {
+		t.Fatalf("pricingValue.UpdatedAt = %q, want 2026-03-27T12:00:00Z", pricingValue.UpdatedAt)
+	}
 
 	skus, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/sets/100/skus"})
 	if err != nil {
@@ -371,6 +386,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	skusValue := decodeResource[getSetSKUsOutput](t, skus)
 	if got := len(skusValue.Products); got != 2 {
 		t.Fatalf("len(skusValue.Products) = %d, want 2", got)
+	}
+	if skusValue.UpdatedAt != "2026-03-27T13:00:00Z" {
+		t.Fatalf("skusValue.UpdatedAt = %q, want 2026-03-27T13:00:00Z", skusValue.UpdatedAt)
 	}
 }
 
@@ -405,7 +423,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 		t.Fatalf("prompt content type = %T, want *mcp.TextContent", result.Messages[0].Content)
 	}
 
-	for _, needle := range []string{"Black Lotus", "mtg", "search_sets", "get_set_products", "get_set_pricing"} {
+	for _, needle := range []string{"Black Lotus", "mtg", "search_sets", "get_set_products", "get_set_pricing", "updated_at", "tcg:///meta"} {
 		if !strings.Contains(content.Text, needle) {
 			t.Fatalf("prompt text missing %q: %s", needle, content.Text)
 		}
@@ -493,16 +511,22 @@ func newFakeAPI() *fakeAPI {
 				{ID: 30, SetID: 100, Name: "Mox Sapphire", SetName: "Alpha", Number: "265", Rarity: "Rare", Colors: []string{}, Finishes: []string{"nonfoil"}},
 			},
 		},
-		pricing: map[setKey][]domain.PricingResult{
+		pricing: map[setKey]domain.PricingSnapshot{
 			{categoryID: 1, setID: 100}: {
-				{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(10000), Market: floatPtr(11000)}}, Manapool: map[string]float64{"Normal": 10500}},
-				{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(5000), Market: floatPtr(5500)}}, Manapool: map[string]float64{"Normal": 5300}},
+				UpdatedAt: "2026-03-27T12:00:00Z",
+				Prices: []domain.PricingResult{
+					{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(10000), Market: floatPtr(11000)}}, Manapool: map[string]float64{"Normal": 10500}},
+					{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(5000), Market: floatPtr(5500)}}, Manapool: map[string]float64{"Normal": 5300}},
+				},
 			},
 		},
-		skus: map[setKey][]domain.SKUResult{
+		skus: map[setKey]domain.SKUSnapshot{
 			{categoryID: 1, setID: 100}: {
-				{ProductID: 10, SKUs: []domain.SKU{{ID: 1001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(11000)}}},
-				{ProductID: 20, SKUs: []domain.SKU{{ID: 2001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(5500)}}},
+				UpdatedAt: "2026-03-27T13:00:00Z",
+				Products: []domain.SKUResult{
+					{ProductID: 10, SKUs: []domain.SKU{{ID: 1001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(11000)}}},
+					{ProductID: 20, SKUs: []domain.SKU{{ID: 2001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(5500)}}},
+				},
 			},
 		},
 	}

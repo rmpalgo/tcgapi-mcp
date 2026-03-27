@@ -17,8 +17,8 @@ type API interface {
 	CategorySets(context.Context, int) ([]domain.SetSummary, error)
 	SearchSets(context.Context, int, string) ([]domain.SetSummary, error)
 	SetProducts(context.Context, int, int) ([]domain.Product, error)
-	SetPricing(context.Context, int, int, *int) ([]domain.PricingResult, error)
-	SetSKUs(context.Context, int, int, *int) ([]domain.SKUResult, error)
+	SetPricing(context.Context, int, int, *int) (domain.PricingSnapshot, error)
+	SetSKUs(context.Context, int, int, *int) (domain.SKUSnapshot, error)
 }
 
 type Cache interface {

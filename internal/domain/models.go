@@ -83,6 +83,11 @@ type PricingResult struct {
 	ManapoolQuantity *int
 }
 
+type PricingSnapshot struct {
+	UpdatedAt string
+	Prices    []PricingResult
+}
+
 type Price struct {
 	Low    *float64
 	Market *float64
@@ -91,6 +96,11 @@ type Price struct {
 type SKUResult struct {
 	ProductID int
 	SKUs      []SKU
+}
+
+type SKUSnapshot struct {
+	UpdatedAt string
+	Products  []SKUResult
 }
 
 type SKU struct {

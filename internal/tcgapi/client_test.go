@@ -74,7 +74,7 @@ func TestCategoriesRevalidatesExpiredCache(t *testing.T) {
 	}
 }
 
-func TestSetPricingFiltersProductID(t *testing.T) {
+func TestSetPricingFiltersProductIDAndPreservesUpdatedAt(t *testing.T) {
 	t.Parallel()
 
 	client, err := NewClient(Dependencies{
@@ -94,15 +94,53 @@ func TestSetPricingFiltersProductID(t *testing.T) {
 	}
 
 	productID := 200
-	prices, err := client.SetPricing(context.Background(), 3, 99, &productID)
+	pricing, err := client.SetPricing(context.Background(), 3, 99, &productID)
 	if err != nil {
 		t.Fatalf("SetPricing() error = %v", err)
 	}
-	if len(prices) != 1 {
-		t.Fatalf("len(prices) = %d, want 1", len(prices))
+	if pricing.UpdatedAt != "2026-03-27T08:04:10-04:00" {
+		t.Fatalf("UpdatedAt = %q, want 2026-03-27T08:04:10-04:00", pricing.UpdatedAt)
 	}
-	if prices[0].ProductID != 200 {
-		t.Fatalf("ProductID = %d, want 200", prices[0].ProductID)
+	if len(pricing.Prices) != 1 {
+		t.Fatalf("len(pricing.Prices) = %d, want 1", len(pricing.Prices))
+	}
+	if pricing.Prices[0].ProductID != 200 {
+		t.Fatalf("ProductID = %d, want 200", pricing.Prices[0].ProductID)
+	}
+}
+
+func TestSetSKUsFiltersProductIDAndPreservesUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	client, err := NewClient(Dependencies{
+		BaseURL: "https://example.invalid",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/3/sets/99/skus" {
+				return newJSONResponse(r, http.StatusNotFound, `{}`), nil
+			}
+
+			return newJSONResponse(r, http.StatusOK, `{"set_id":99,"updated":"2026-03-27T09:14:10-04:00","product_count":2,"sku_count":2,"products":{"100":{"1001":{"cnd":"NM","var":"N","lng":"en","mkt":1.2}},"200":{"2001":{"cnd":"NM","var":"N","lng":"en","mkt":2.2}}}}`), nil
+		})},
+		Cache:  NewMemoryCache(1 << 20),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	productID := 200
+	skus, err := client.SetSKUs(context.Background(), 3, 99, &productID)
+	if err != nil {
+		t.Fatalf("SetSKUs() error = %v", err)
+	}
+	if skus.UpdatedAt != "2026-03-27T09:14:10-04:00" {
+		t.Fatalf("UpdatedAt = %q, want 2026-03-27T09:14:10-04:00", skus.UpdatedAt)
+	}
+	if len(skus.Products) != 1 {
+		t.Fatalf("len(skus.Products) = %d, want 1", len(skus.Products))
+	}
+	if skus.Products[0].ProductID != 200 {
+		t.Fatalf("ProductID = %d, want 200", skus.Products[0].ProductID)
 	}
 }
 

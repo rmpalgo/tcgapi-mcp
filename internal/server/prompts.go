@@ -82,7 +82,9 @@ func (s *Server) priceCheckPrompt(ctx context.Context, req *mcp.GetPromptRequest
 		"2. Call search_sets with the chosen category and a focused set query.",
 		fmt.Sprintf("3. Call get_set_products to find the exact product that best matches %q.", cardName),
 		"4. Call get_set_pricing with category, set_id, and product_id for the chosen product.",
-		"5. Summarize subtype low and market prices, and clearly note ambiguity if multiple products are plausible matches.",
+		"5. Cite updated_at from the pricing response before making freshness claims such as today, this week, or recently.",
+		"6. If the user asks about overall API freshness instead of this specific product response, read tcg:///meta.",
+		"7. Summarize subtype low and market prices, and clearly note ambiguity if multiple products are plausible matches.",
 	)
 
 	return promptResult("price-check", strings.Join(instructions, "\n")), nil
@@ -100,8 +102,9 @@ func (s *Server) setOverviewPrompt(ctx context.Context, req *mcp.GetPromptReques
 		fmt.Sprintf("2. Call search_sets using the game and the set query %q.", setName),
 		"3. Pick the best matching set and call get_set_products.",
 		"4. Review rarity, numbering, and notable product traits from the product list.",
-		"5. Call get_set_pricing for the chosen set and summarize the most notable cards and price tiers.",
-		"6. Present the result as a concise set guide with any assumptions called out explicitly.",
+		"5. Call get_set_pricing for the chosen set and use updated_at if you mention recency.",
+		"6. Read tcg:///meta if you need overall API freshness context beyond the set pricing response.",
+		"7. Present the result as a concise set guide with any assumptions called out explicitly.",
 	}, "\n")
 
 	return promptResult("set-overview", text), nil
@@ -119,7 +122,9 @@ func (s *Server) compareVariantsPrompt(ctx context.Context, req *mcp.GetPromptRe
 		"2. Use search_sets to locate the most likely set.",
 		fmt.Sprintf("3. Use get_set_products to find the exact product match for %q.", cardName),
 		"4. Call get_set_skus with category, set_id, and product_id.",
-		"5. Summarize condition, variant, and language prices in a compact comparison table and note missing markets.",
+		"5. Cite updated_at from the SKU response before making freshness claims.",
+		"6. If the user asks about overall API freshness instead of this SKU snapshot, read tcg:///meta.",
+		"7. Summarize condition, variant, and language prices in a compact comparison table and note missing markets.",
 	}, "\n")
 
 	return promptResult("compare-variants", text), nil

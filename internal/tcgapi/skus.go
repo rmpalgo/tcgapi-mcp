@@ -10,13 +10,13 @@ import (
 	"github.com/rmpalgo/tcgapi-mcp/internal/tcgapi/generated"
 )
 
-func (c *Client) SetSKUs(ctx context.Context, categoryID, setID int, productID *int) ([]domain.SKUResult, error) {
+func (c *Client) SetSKUs(ctx context.Context, categoryID, setID int, productID *int) (domain.SKUSnapshot, error) {
 	resp, err := c.raw.GetSetSkusWithResponse(ctx, generated.CategoryId(categoryID), generated.SetId(setID))
 	if err != nil {
-		return nil, fmt.Errorf("get set skus: %w", err)
+		return domain.SKUSnapshot{}, fmt.Errorf("get set skus: %w", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, unexpectedStatus("get set skus", resp.StatusCode(), resp.Body)
+		return domain.SKUSnapshot{}, unexpectedStatus("get set skus", resp.StatusCode(), resp.Body)
 	}
 
 	productIDs := make([]string, 0, len(resp.JSON200.Products))
@@ -67,5 +67,8 @@ func (c *Client) SetSKUs(ctx context.Context, categoryID, setID int, productID *
 		})
 	}
 
-	return out, nil
+	return domain.SKUSnapshot{
+		UpdatedAt: formatTime(resp.JSON200.Updated),
+		Products:  out,
+	}, nil
 }

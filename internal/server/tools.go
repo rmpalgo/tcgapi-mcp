@@ -58,6 +58,7 @@ type getSetPricingOutput struct {
 	CategoryID int                    `json:"category_id"`
 	SetID      int                    `json:"set_id"`
 	ProductID  *int                   `json:"product_id,omitempty"`
+	UpdatedAt  string                 `json:"updated_at"`
 	Prices     []domain.PricingResult `json:"prices"`
 }
 
@@ -71,6 +72,7 @@ type getSetSKUsOutput struct {
 	CategoryID int                `json:"category_id"`
 	SetID      int                `json:"set_id"`
 	ProductID  *int               `json:"product_id,omitempty"`
+	UpdatedAt  string             `json:"updated_at"`
 	Products   []domain.SKUResult `json:"products"`
 }
 
@@ -149,7 +151,7 @@ func (s *Server) registerTools() {
 			return nil, getSetPricingOutput{}, err
 		}
 
-		prices, err := s.api.SetPricing(ctx, categoryID, in.SetID, in.ProductID)
+		pricing, err := s.api.SetPricing(ctx, categoryID, in.SetID, in.ProductID)
 		if err != nil {
 			return nil, getSetPricingOutput{}, err
 		}
@@ -158,7 +160,8 @@ func (s *Server) registerTools() {
 			CategoryID: categoryID,
 			SetID:      in.SetID,
 			ProductID:  in.ProductID,
-			Prices:     prices,
+			UpdatedAt:  pricing.UpdatedAt,
+			Prices:     pricing.Prices,
 		}, nil
 	})
 
@@ -168,7 +171,7 @@ func (s *Server) registerTools() {
 			return nil, getSetSKUsOutput{}, err
 		}
 
-		products, err := s.api.SetSKUs(ctx, categoryID, in.SetID, in.ProductID)
+		skus, err := s.api.SetSKUs(ctx, categoryID, in.SetID, in.ProductID)
 		if err != nil {
 			return nil, getSetSKUsOutput{}, err
 		}
@@ -177,7 +180,8 @@ func (s *Server) registerTools() {
 			CategoryID: categoryID,
 			SetID:      in.SetID,
 			ProductID:  in.ProductID,
-			Products:   products,
+			UpdatedAt:  skus.UpdatedAt,
+			Products:   skus.Products,
 		}, nil
 	})
 }

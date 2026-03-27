@@ -131,28 +131,30 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 		if err != nil {
 			return nil, err
 		}
-		prices, err := s.api.SetPricing(ctx, categoryID, setID, nil)
+		pricing, err := s.api.SetPricing(ctx, categoryID, setID, nil)
 		if err != nil {
 			return nil, err
 		}
 		return getSetPricingOutput{
 			CategoryID: categoryID,
 			SetID:      setID,
-			Prices:     prices,
+			UpdatedAt:  pricing.UpdatedAt,
+			Prices:     pricing.Prices,
 		}, nil
 	case len(parts) == 4 && parts[1] == "sets" && parts[3] == "skus":
 		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
 		if err != nil {
 			return nil, err
 		}
-		products, err := s.api.SetSKUs(ctx, categoryID, setID, nil)
+		skus, err := s.api.SetSKUs(ctx, categoryID, setID, nil)
 		if err != nil {
 			return nil, err
 		}
 		return getSetSKUsOutput{
 			CategoryID: categoryID,
 			SetID:      setID,
-			Products:   products,
+			UpdatedAt:  skus.UpdatedAt,
+			Products:   skus.Products,
 		}, nil
 	default:
 		return nil, mcp.ResourceNotFoundError(rawURI)
