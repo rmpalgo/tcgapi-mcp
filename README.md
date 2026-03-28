@@ -6,10 +6,10 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for tra
 
 This project is currently a read-only MCP server with:
 
-- 5 tools
-- 2 concrete resources
-- 4 resource templates
-- 3 prompts
+- 7 tools
+- 3 concrete resources
+- 6 resource templates
+- 6 prompts
 - cross-platform release archives for macOS, Linux, and Windows
 
 ## Table of Contents
@@ -33,6 +33,8 @@ This project is currently a read-only MCP server with:
 - Category discovery and flexible category resolution by ID, name, or alias
 - Set search and product lookup
 - Set pricing and SKU-level comparison data
+- Expansion release-count analytics
+- Deterministic set-insights summaries for rarity, numbering, and top market cards
 - Top-level `updated_at` freshness metadata on pricing and SKU responses
 - `tcg:///meta` resource for overall upstream freshness and counts
 - Official Go MCP SDK implementation
@@ -110,6 +112,8 @@ Restart Claude Desktop and try prompts like:
 - "Get products for set ID 41036 in Pokemon."
 - "Get pricing for that set."
 - "Compare SKU variants for this card."
+- "How many Pokemon sets were released after 2000?"
+- "Give me a set-insights summary for this expansion."
 
 ## Example Output
 
@@ -177,11 +181,14 @@ Current transport support:
 - `get_set_products`
 - `get_set_pricing`
 - `get_set_skus`
+- `summarize_release_counts`
+- `analyze_set_insights`
 
 ### Resources
 
 - `tcg:///meta`
 - `tcg:///categories`
+- `tcg:///analytics/releases-by-year`
 
 ### Resource Templates
 
@@ -189,18 +196,24 @@ Current transport support:
 - `tcg:///{categoryId}/sets/{setId}`
 - `tcg:///{categoryId}/sets/{setId}/pricing`
 - `tcg:///{categoryId}/sets/{setId}/skus`
+- `tcg:///{categoryId}/analytics/releases-by-year`
+- `tcg:///{categoryId}/sets/{setId}/insights`
 
 ### Prompts
 
 - `price-check`
 - `set-overview`
 - `compare-variants`
+- `expansion-history`
+- `set-insights`
+- `value-drivers`
 
 ### Notes
 
 - category inputs accept numeric IDs, category names, and aliases such as `Pokemon` or `mtg`
 - pricing and SKU responses include top-level `updated_at`
 - `tcg:///meta` exposes overall upstream freshness and dataset counts
+- release-count and set-insights outputs are deterministic summaries computed from current API data
 
 ## Freshness and Data Guidance
 
@@ -211,6 +224,14 @@ For recency-sensitive questions:
 - use `tcg:///meta` when the question is about overall API freshness rather than one pricing or SKU response
 
 The server is read-only. It does not create, update, or delete data.
+
+Not currently supported:
+
+- booster-pack slot mapping
+- booster-pack card counts
+- secret-rare slot detection
+- pull-rate probability calculations
+- artist- or illustration-based value analysis
 
 ## Development
 

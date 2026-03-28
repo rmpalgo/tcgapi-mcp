@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rmpalgo/tcgapi-mcp/internal/analysis"
 	"github.com/rmpalgo/tcgapi-mcp/internal/buildinfo"
 	"github.com/rmpalgo/tcgapi-mcp/internal/catalog"
 	"github.com/rmpalgo/tcgapi-mcp/internal/domain"
@@ -124,23 +125,23 @@ func TestNewRegistersSurface(t *testing.T) {
 	ctx := context.Background()
 
 	tools := collectTools(t, ctx, clientSession)
-	if got := len(tools); got != 5 {
-		t.Fatalf("len(tools) = %d, want 5", got)
+	if got := len(tools); got != 7 {
+		t.Fatalf("len(tools) = %d, want 7", got)
 	}
 
 	resources := collectResources(t, ctx, clientSession)
-	if got := len(resources); got != 2 {
-		t.Fatalf("len(resources) = %d, want 2", got)
+	if got := len(resources); got != 3 {
+		t.Fatalf("len(resources) = %d, want 3", got)
 	}
 
 	templates := collectResourceTemplates(t, ctx, clientSession)
-	if got := len(templates); got != 4 {
-		t.Fatalf("len(resource templates) = %d, want 4", got)
+	if got := len(templates); got != 6 {
+		t.Fatalf("len(resource templates) = %d, want 6", got)
 	}
 
 	prompts := collectPrompts(t, ctx, clientSession)
-	if got := len(prompts); got != 3 {
-		t.Fatalf("len(prompts) = %d, want 3", got)
+	if got := len(prompts); got != 6 {
+		t.Fatalf("len(prompts) = %d, want 6", got)
 	}
 }
 
@@ -325,6 +326,55 @@ func TestPricingAndSKUsHonorProductID(t *testing.T) {
 	}
 }
 
+func TestAnalyticsToolsReturnDerivedSummaries(t *testing.T) {
+	t.Parallel()
+
+	_, clientSession, _ := newTestServer(t)
+
+	countsResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "summarize_release_counts",
+		Arguments: map[string]any{
+			"category":             "mtg",
+			"year_from":            2000,
+			"include_supplemental": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(summarize_release_counts) error = %v", err)
+	}
+
+	counts := decodeStructured[domain.ReleaseCountsSummary](t, countsResult.StructuredContent)
+	if counts.CategoryScope != "Magic: The Gathering" {
+		t.Fatalf("CategoryScope = %q, want Magic: The Gathering", counts.CategoryScope)
+	}
+	if counts.TotalSets != 1 {
+		t.Fatalf("TotalSets = %d, want 1", counts.TotalSets)
+	}
+
+	insightsResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+			"top_n":    2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights) error = %v", err)
+	}
+
+	insights := decodeStructured[domain.SetInsights](t, insightsResult.StructuredContent)
+	if insights.Set.Name != "Alpha" {
+		t.Fatalf("Set.Name = %q, want Alpha", insights.Set.Name)
+	}
+	if insights.PricingUpdatedAt != "2026-03-27T12:00:00Z" {
+		t.Fatalf("PricingUpdatedAt = %q, want 2026-03-27T12:00:00Z", insights.PricingUpdatedAt)
+	}
+	if len(insights.TopMarketCards) != 2 {
+		t.Fatalf("len(TopMarketCards) = %d, want 2", len(insights.TopMarketCards))
+	}
+}
+
 func TestResourcesReadJSON(t *testing.T) {
 	t.Parallel()
 
@@ -347,6 +397,24 @@ func TestResourcesReadJSON(t *testing.T) {
 	categoriesValue := decodeResource[listCategoriesOutput](t, categories)
 	if got := len(categoriesValue.Categories); got != 2 {
 		t.Fatalf("len(categoriesValue.Categories) = %d, want 2", got)
+	}
+
+	globalCounts, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///analytics/releases-by-year"})
+	if err != nil {
+		t.Fatalf("ReadResource(global release counts) error = %v", err)
+	}
+	globalCountsValue := decodeResource[domain.ReleaseCountsSummary](t, globalCounts)
+	if globalCountsValue.TotalSets != 3 {
+		t.Fatalf("global release count total = %d, want 3", globalCountsValue.TotalSets)
+	}
+
+	categoryCounts, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/analytics/releases-by-year"})
+	if err != nil {
+		t.Fatalf("ReadResource(category release counts) error = %v", err)
+	}
+	categoryCountsValue := decodeResource[domain.ReleaseCountsSummary](t, categoryCounts)
+	if categoryCountsValue.CategoryScope != "Magic: The Gathering" {
+		t.Fatalf("category release scope = %q, want Magic: The Gathering", categoryCountsValue.CategoryScope)
 	}
 
 	sets, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/sets"})
@@ -390,6 +458,15 @@ func TestResourcesReadJSON(t *testing.T) {
 	if skusValue.UpdatedAt != "2026-03-27T13:00:00Z" {
 		t.Fatalf("skusValue.UpdatedAt = %q, want 2026-03-27T13:00:00Z", skusValue.UpdatedAt)
 	}
+
+	insights, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/sets/100/insights"})
+	if err != nil {
+		t.Fatalf("ReadResource(set insights) error = %v", err)
+	}
+	insightsValue := decodeResource[domain.SetInsights](t, insights)
+	if insightsValue.Set.Name != "Alpha" {
+		t.Fatalf("insightsValue.Set.Name = %q, want Alpha", insightsValue.Set.Name)
+	}
 }
 
 func TestPromptGetReturnsInstructions(t *testing.T) {
@@ -399,8 +476,8 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	ctx := context.Background()
 
 	prompts := collectPrompts(t, ctx, clientSession)
-	if got := len(prompts); got != 3 {
-		t.Fatalf("len(prompts) = %d, want 3", got)
+	if got := len(prompts); got != 6 {
+		t.Fatalf("len(prompts) = %d, want 6", got)
 	}
 
 	result, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
@@ -428,6 +505,46 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 			t.Fatalf("prompt text missing %q: %s", needle, content.Text)
 		}
 	}
+
+	expansionHistory, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name: "expansion-history",
+		Arguments: map[string]string{
+			"game":      "mtg",
+			"year_from": "2001",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt(expansion-history) error = %v", err)
+	}
+	expansionContent, ok := expansionHistory.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expansion-history content type = %T, want *mcp.TextContent", expansionHistory.Messages[0].Content)
+	}
+	for _, needle := range []string{"summarize_release_counts", "2001", "mtg"} {
+		if !strings.Contains(expansionContent.Text, needle) {
+			t.Fatalf("expansion-history prompt missing %q: %s", needle, expansionContent.Text)
+		}
+	}
+
+	valueDrivers, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name: "value-drivers",
+		Arguments: map[string]string{
+			"set_name": "Alpha",
+			"game":     "mtg",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt(value-drivers) error = %v", err)
+	}
+	valueDriversContent, ok := valueDrivers.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("value-drivers content type = %T, want *mcp.TextContent", valueDrivers.Messages[0].Content)
+	}
+	for _, needle := range []string{"analyze_set_insights", "artist", "illustration"} {
+		if !strings.Contains(valueDriversContent.Text, needle) {
+			t.Fatalf("value-drivers prompt missing %q: %s", needle, valueDriversContent.Text)
+		}
+	}
 }
 
 func newTestServer(t *testing.T) (*Server, *mcp.ClientSession, *fakeAPI) {
@@ -440,10 +557,20 @@ func newTestServerWithAPI(t *testing.T, api *fakeAPI) (*Server, *mcp.ClientSessi
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	resolver := catalog.NewResolver(api.categories, catalog.DefaultAliases())
+	analyzer, err := analysis.New(analysis.Dependencies{
+		API: api,
+		Categories: func(context.Context) ([]domain.Category, error) {
+			return append([]domain.Category(nil), api.categories...), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("analysis.New() error = %v", err)
+	}
 
 	srv, err := New(Dependencies{
 		Logger:   logger,
 		API:      api,
+		Analyzer: analyzer,
 		Resolver: resolver,
 		PageSize: 2,
 		Build: buildinfo.Info{
@@ -494,14 +621,17 @@ func newFakeAPI() *fakeAPI {
 		categories: categories,
 		categorySets: map[int][]domain.SetSummary{
 			1: {
-				{ID: 100, CategoryID: 1, Name: "Alpha", Abbreviation: "LEA", ProductCount: 3, SKUCount: 4},
-				{ID: 101, CategoryID: 1, Name: "Beta", Abbreviation: "LEB", ProductCount: 1, SKUCount: 1},
+				{ID: 100, CategoryID: 1, Name: "Alpha", Abbreviation: "LEA", PublishedOn: "2001-08-01", ProductCount: 3, SKUCount: 4},
+				{ID: 101, CategoryID: 1, Name: "Beta", Abbreviation: "LEB", PublishedOn: "2003-08-01", ProductCount: 1, SKUCount: 1, IsSupplemental: true},
+			},
+			3: {
+				{ID: 200, CategoryID: 3, Name: "Ruby", Abbreviation: "RBY", PublishedOn: "2001-01-01", ProductCount: 1, SKUCount: 1},
 			},
 		},
 		searchSets: map[int][]domain.SetSummary{
 			1: {
-				{ID: 100, CategoryID: 1, Name: "Alpha", Abbreviation: "LEA", ProductCount: 3, SKUCount: 4},
-				{ID: 101, CategoryID: 1, Name: "Beta", Abbreviation: "LEB", ProductCount: 1, SKUCount: 1},
+				{ID: 100, CategoryID: 1, Name: "Alpha", Abbreviation: "LEA", PublishedOn: "2001-08-01", ProductCount: 3, SKUCount: 4},
+				{ID: 101, CategoryID: 1, Name: "Beta", Abbreviation: "LEB", PublishedOn: "2003-08-01", ProductCount: 1, SKUCount: 1, IsSupplemental: true},
 			},
 		},
 		products: map[setKey][]domain.Product{
@@ -515,7 +645,7 @@ func newFakeAPI() *fakeAPI {
 			{categoryID: 1, setID: 100}: {
 				UpdatedAt: "2026-03-27T12:00:00Z",
 				Prices: []domain.PricingResult{
-					{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(10000), Market: floatPtr(11000)}}, Manapool: map[string]float64{"Normal": 10500}},
+					{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(10000), Market: floatPtr(11000)}, "Foil": {Market: floatPtr(12000)}}, Manapool: map[string]float64{"Normal": 10500}},
 					{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Low: floatPtr(5000), Market: floatPtr(5500)}}, Manapool: map[string]float64{"Normal": 5300}},
 				},
 			},

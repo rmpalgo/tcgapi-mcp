@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/rmpalgo/tcgapi-mcp/internal/analysis"
 	"github.com/rmpalgo/tcgapi-mcp/internal/buildinfo"
 	"github.com/rmpalgo/tcgapi-mcp/internal/catalog"
 	"github.com/rmpalgo/tcgapi-mcp/internal/config"
+	"github.com/rmpalgo/tcgapi-mcp/internal/domain"
 	"github.com/rmpalgo/tcgapi-mcp/internal/logging"
 	"github.com/rmpalgo/tcgapi-mcp/internal/server"
 	"github.com/rmpalgo/tcgapi-mcp/internal/tcgapi"
@@ -93,10 +95,24 @@ func buildRuntime(ctx context.Context, opts runOptions) (_ *runtime, err error) 
 	}
 
 	resolver := catalog.NewResolver(categories, catalog.DefaultAliases())
+	analyzer, err := analysis.New(analysis.Dependencies{
+		API: apiClient,
+		Categories: func(ctx context.Context) ([]domain.Category, error) {
+			cats := resolver.Categories()
+			if len(cats) > 0 {
+				return cats, nil
+			}
+			return apiClient.Categories(ctx)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build analyzer: %w", err)
+	}
 
 	srv, err := server.New(server.Dependencies{
 		Logger:   logger,
 		API:      apiClient,
+		Analyzer: analyzer,
 		Resolver: resolver,
 		PageSize: cfg.PageSize,
 		Build:    opts.Build,

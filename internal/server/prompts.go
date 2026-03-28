@@ -57,11 +57,60 @@ func (s *Server) registerPrompts() {
 				},
 			},
 		},
+		{
+			Name:        "expansion-history",
+			Description: "Summarize how many sets were released after a given year, optionally scoped to one game category.",
+			Arguments: []*mcp.PromptArgument{
+				{
+					Name:        "game",
+					Description: "Optional game name or category alias, such as Pokemon or mtg.",
+				},
+				{
+					Name:        "year_from",
+					Description: "Optional inclusive starting year. Defaults to 2001.",
+				},
+			},
+		},
+		{
+			Name:        "set-insights",
+			Description: "Build a deterministic set summary covering size, numbering, rarities, and top market cards.",
+			Arguments: []*mcp.PromptArgument{
+				{
+					Name:        "set_name",
+					Description: "Set name to inspect.",
+					Required:    true,
+				},
+				{
+					Name:        "game",
+					Description: "Game name or category alias, such as Pokemon or mtg.",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "value-drivers",
+			Description: "Explain what current set data suggests about value drivers, while clearly calling out unsupported factors.",
+			Arguments: []*mcp.PromptArgument{
+				{
+					Name:        "set_name",
+					Description: "Set name to inspect.",
+					Required:    true,
+				},
+				{
+					Name:        "game",
+					Description: "Game name or category alias, such as Pokemon or mtg.",
+					Required:    true,
+				},
+			},
+		},
 	}
 
 	s.raw.AddPrompt(s.prompts[0], s.priceCheckPrompt)
 	s.raw.AddPrompt(s.prompts[1], s.setOverviewPrompt)
 	s.raw.AddPrompt(s.prompts[2], s.compareVariantsPrompt)
+	s.raw.AddPrompt(s.prompts[3], s.expansionHistoryPrompt)
+	s.raw.AddPrompt(s.prompts[4], s.setInsightsPrompt)
+	s.raw.AddPrompt(s.prompts[5], s.valueDriversPrompt)
 }
 
 func (s *Server) priceCheckPrompt(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -128,6 +177,74 @@ func (s *Server) compareVariantsPrompt(ctx context.Context, req *mcp.GetPromptRe
 	}, "\n")
 
 	return promptResult("compare-variants", text), nil
+}
+
+func (s *Server) expansionHistoryPrompt(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	_ = ctx
+
+	game := promptArg(req, "game")
+	yearFrom := promptArg(req, "year_from")
+	if yearFrom == "" {
+		yearFrom = "2001"
+	}
+
+	lines := []string{
+		fmt.Sprintf("Use the tcgapi-mcp analytics capabilities to summarize set releases from %s onward.", yearFrom),
+	}
+	if game == "" {
+		lines = append(lines,
+			"1. Read tcg:///analytics/releases-by-year for the default after-2000 view across all categories, or call summarize_release_counts if you need a custom year range.",
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("1. Resolve %q to a category with list_categories if needed.", game),
+			"2. Call summarize_release_counts with the chosen category and requested year range.",
+		)
+	}
+	lines = append(lines,
+		"3. Report the total number of sets and the per-year breakdown.",
+		"4. If you mention heuristics like vintage versus modern, frame them as a simple pre-2001 versus 2001+ distinction rather than an official taxonomy.",
+	)
+
+	return promptResult("expansion-history", strings.Join(lines, "\n")), nil
+}
+
+func (s *Server) setInsightsPrompt(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	_ = ctx
+
+	setName := promptArg(req, "set_name")
+	game := promptArg(req, "game")
+
+	text := strings.Join([]string{
+		fmt.Sprintf("Use the tcgapi-mcp analytics capabilities to summarize set insights for %q in %q.", setName, game),
+		"1. Resolve the game with list_categories if needed.",
+		fmt.Sprintf("2. Use search_sets with %q to find the best matching set.", setName),
+		"3. Use analyze_set_insights for the selected set.",
+		"4. Summarize set size, numbering patterns, rarity breakdown, top market cards, and highest_value_rarity.",
+		"5. Treat numbered_card_like_count and market_sum_estimate as heuristics and label them accordingly.",
+		"6. Cite pricing_updated_at and sku_updated_at when making recency-sensitive claims.",
+	}, "\n")
+
+	return promptResult("set-insights", text), nil
+}
+
+func (s *Server) valueDriversPrompt(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	_ = ctx
+
+	setName := promptArg(req, "set_name")
+	game := promptArg(req, "game")
+
+	text := strings.Join([]string{
+		fmt.Sprintf("Use the tcgapi-mcp analytics capabilities to explain value drivers for %q in %q.", setName, game),
+		"1. Resolve the game with list_categories if needed.",
+		fmt.Sprintf("2. Use search_sets with %q to find the target set.", setName),
+		"3. Use analyze_set_insights for the selected set.",
+		"4. Explain supported drivers using current data: rarity, numbering patterns, variant subtype pricing, and highest-value products.",
+		"5. Explicitly say that artist, illustration style, pull-rate math, booster-pack slotting, and sealed-versus-single economics are not directly modeled by the current API.",
+		"6. Treat market_sum_estimate as a derived estimate, not an official set valuation.",
+	}, "\n")
+
+	return promptResult("value-drivers", text), nil
 }
 
 func promptResult(description, text string) *mcp.GetPromptResult {

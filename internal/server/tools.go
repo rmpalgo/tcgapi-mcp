@@ -76,6 +76,19 @@ type getSetSKUsOutput struct {
 	Products   []domain.SKUResult `json:"products"`
 }
 
+type summarizeReleaseCountsInput struct {
+	Category            string `json:"category,omitempty" jsonschema:"optional game category name, alias, or numeric ID"`
+	YearFrom            int    `json:"year_from,omitempty" jsonschema:"inclusive starting year; defaults to 2001"`
+	YearTo              *int   `json:"year_to,omitempty" jsonschema:"optional inclusive ending year"`
+	IncludeSupplemental *bool  `json:"include_supplemental,omitempty" jsonschema:"whether to include supplemental sets; defaults to true"`
+}
+
+type analyzeSetInsightsInput struct {
+	Category string `json:"category" jsonschema:"game category name, alias, or numeric ID"`
+	SetID    int    `json:"set_id" jsonschema:"set ID from search_sets or the category sets resource"`
+	TopN     int    `json:"top_n,omitempty" jsonschema:"how many top market cards to return; defaults to 10"`
+}
+
 func (s *Server) registerTools() {
 	s.tools = []*mcp.Tool{
 		{
@@ -97,6 +110,14 @@ func (s *Server) registerTools() {
 		{
 			Name:        "get_set_skus",
 			Description: "Get SKU-level condition, variant, and language pricing for a set. Pass product_id to narrow the response to one product. The category field accepts IDs, names, or aliases.",
+		},
+		{
+			Name:        "summarize_release_counts",
+			Description: "Summarize how many sets were released by year after a chosen starting year, optionally scoped to one game category.",
+		},
+		{
+			Name:        "analyze_set_insights",
+			Description: "Derive set-level insights such as rarity counts, numbering patterns, top market cards, and a market-sum estimate for a set.",
 		},
 	}
 
@@ -183,6 +204,41 @@ func (s *Server) registerTools() {
 			UpdatedAt:  skus.UpdatedAt,
 			Products:   skus.Products,
 		}, nil
+	})
+
+	mcp.AddTool(s.raw, s.tools[5], func(ctx context.Context, req *mcp.CallToolRequest, in summarizeReleaseCountsInput) (*mcp.CallToolResult, domain.ReleaseCountsSummary, error) {
+		var category *domain.Category
+		if in.Category != "" {
+			resolved, err := s.resolver.ResolveCategory(in.Category)
+			if err != nil {
+				return nil, domain.ReleaseCountsSummary{}, err
+			}
+			category = &resolved
+		}
+
+		includeSupplemental := true
+		if in.IncludeSupplemental != nil {
+			includeSupplemental = *in.IncludeSupplemental
+		}
+
+		summary, err := s.analyzer.SummarizeReleaseCounts(ctx, category, in.YearFrom, in.YearTo, includeSupplemental)
+		if err != nil {
+			return nil, domain.ReleaseCountsSummary{}, err
+		}
+		return nil, summary, nil
+	})
+
+	mcp.AddTool(s.raw, s.tools[6], func(ctx context.Context, req *mcp.CallToolRequest, in analyzeSetInsightsInput) (*mcp.CallToolResult, domain.SetInsights, error) {
+		category, err := s.resolver.ResolveCategory(in.Category)
+		if err != nil {
+			return nil, domain.SetInsights{}, err
+		}
+
+		insights, err := s.analyzer.AnalyzeSetInsights(ctx, category, in.SetID, in.TopN)
+		if err != nil {
+			return nil, domain.SetInsights{}, err
+		}
+		return nil, insights, nil
 	})
 }
 

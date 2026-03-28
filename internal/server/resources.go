@@ -25,6 +25,12 @@ func (s *Server) registerResources() {
 			Description: "Full category list.",
 			MIMEType:    "application/json",
 		},
+		{
+			Name:        "analytics-releases-by-year",
+			URI:         "tcg:///analytics/releases-by-year",
+			Description: "Release counts by year across all categories after 2000.",
+			MIMEType:    "application/json",
+		},
 	}
 
 	s.resourceTemplates = []*mcp.ResourceTemplate{
@@ -50,6 +56,18 @@ func (s *Server) registerResources() {
 			Name:        "set-skus",
 			URITemplate: "tcg:///{categoryId}/sets/{setId}/skus",
 			Description: "SKU detail for a set.",
+			MIMEType:    "application/json",
+		},
+		{
+			Name:        "category-analytics-releases-by-year",
+			URITemplate: "tcg:///{categoryId}/analytics/releases-by-year",
+			Description: "Release counts by year for one game category after 2000.",
+			MIMEType:    "application/json",
+		},
+		{
+			Name:        "set-insights",
+			URITemplate: "tcg:///{categoryId}/sets/{setId}/insights",
+			Description: "Derived set insights including rarity, numbering, and value summaries.",
 			MIMEType:    "application/json",
 		},
 	}
@@ -103,6 +121,8 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 			}
 		}
 		return listCategoriesOutput{Categories: categories}, nil
+	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "releases-by-year":
+		return s.analyzer.SummarizeReleaseCounts(ctx, nil, 2001, nil, true)
 	case len(parts) == 2 && parts[1] == "sets":
 		categoryID, err := parseResourceInt(parts[0], rawURI)
 		if err != nil {
@@ -116,6 +136,16 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 			CategoryID: categoryID,
 			Sets:       sets,
 		}, nil
+	case len(parts) == 3 && parts[1] == "analytics" && parts[2] == "releases-by-year":
+		categoryID, err := parseResourceInt(parts[0], rawURI)
+		if err != nil {
+			return nil, err
+		}
+		category, err := s.resolver.ResolveCategory(strconv.Itoa(categoryID))
+		if err != nil {
+			return nil, err
+		}
+		return s.analyzer.SummarizeReleaseCounts(ctx, &category, 2001, nil, true)
 	case len(parts) == 3 && parts[1] == "sets":
 		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
 		if err != nil {
@@ -126,6 +156,16 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 			return nil, err
 		}
 		return fullProductsOutput(categoryID, setID, products), nil
+	case len(parts) == 4 && parts[1] == "sets" && parts[3] == "insights":
+		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
+		if err != nil {
+			return nil, err
+		}
+		category, err := s.resolver.ResolveCategory(strconv.Itoa(categoryID))
+		if err != nil {
+			return nil, err
+		}
+		return s.analyzer.AnalyzeSetInsights(ctx, category, setID, 10)
 	case len(parts) == 4 && parts[1] == "sets" && parts[3] == "pricing":
 		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
 		if err != nil {
