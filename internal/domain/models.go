@@ -58,6 +58,29 @@ type Product struct {
 	CardTrader         []CardTraderEntry
 }
 
+type ProductSummary struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Number string `json:"number,omitempty"`
+	Rarity string `json:"rarity,omitempty"`
+}
+
+type ProductKind string
+
+const (
+	ProductKindSingleLike ProductKind = "single_like"
+	ProductKindSealedLike ProductKind = "sealed_like"
+	ProductKindCodeCard   ProductKind = "code_card"
+	ProductKindUnknown    ProductKind = "unknown"
+)
+
+type ProductKindFilter string
+
+const (
+	ProductKindFilterAll        ProductKindFilter = "all"
+	ProductKindFilterSingleLike ProductKindFilter = "single_like"
+)
+
 type CardTraderEntry struct {
 	ID              int
 	MatchType       string
@@ -78,6 +101,7 @@ type CardTraderProperty struct {
 
 type PricingResult struct {
 	ProductID        int
+	Product          *ProductSummary `json:"product,omitempty"`
 	Subtypes         map[string]Price
 	Manapool         map[string]float64
 	ManapoolQuantity *int
@@ -95,6 +119,7 @@ type Price struct {
 
 type SKUResult struct {
 	ProductID int
+	Product   *ProductSummary `json:"product,omitempty"`
 	SKUs      []SKU
 }
 
@@ -170,33 +195,37 @@ type NumberingSummary struct {
 }
 
 type TopMarketCard struct {
-	ProductID   int     `json:"product_id"`
-	Name        string  `json:"name"`
-	Number      string  `json:"number,omitempty"`
-	Rarity      string  `json:"rarity,omitempty"`
-	Subtype     string  `json:"subtype"`
-	MarketPrice float64 `json:"market_price"`
+	ProductID   int         `json:"product_id"`
+	Name        string      `json:"name"`
+	Number      string      `json:"number,omitempty"`
+	Rarity      string      `json:"rarity,omitempty"`
+	ProductKind ProductKind `json:"product_kind"`
+	Subtype     string      `json:"subtype"`
+	MarketPrice float64     `json:"market_price"`
 }
 
 type HighestValueRarity struct {
-	Rarity      string  `json:"rarity"`
-	ProductID   int     `json:"product_id"`
-	ProductName string  `json:"product_name"`
-	Number      string  `json:"number,omitempty"`
-	Subtype     string  `json:"subtype"`
-	MarketPrice float64 `json:"market_price"`
+	Rarity      string      `json:"rarity"`
+	ProductID   int         `json:"product_id"`
+	ProductName string      `json:"product_name"`
+	Number      string      `json:"number,omitempty"`
+	ProductKind ProductKind `json:"product_kind"`
+	Subtype     string      `json:"subtype"`
+	MarketPrice float64     `json:"market_price"`
 }
 
 type SetInsights struct {
-	Set                   SetMetadata         `json:"set"`
-	ProductCountTotal     int                 `json:"product_count_total"`
-	NumberedCardLikeCount int                 `json:"numbered_card_like_count"`
-	NumberingSummary      NumberingSummary    `json:"numbering_summary"`
-	RarityBreakdown       []RarityBreakdown   `json:"rarity_breakdown"`
-	PricingUpdatedAt      string              `json:"pricing_updated_at"`
-	SKUUpdatedAt          string              `json:"sku_updated_at"`
-	TopMarketCards        []TopMarketCard     `json:"top_market_cards"`
-	HighestValueRarity    *HighestValueRarity `json:"highest_value_rarity,omitempty"`
-	MarketSumEstimate     float64             `json:"market_sum_estimate"`
-	HeuristicNotes        []string            `json:"heuristic_notes,omitempty"`
+	Set                      SetMetadata         `json:"set"`
+	ProductCountTotal        int                 `json:"product_count_total"`
+	NumberedCardLikeCount    int                 `json:"numbered_card_like_count"`
+	NumberingSummary         NumberingSummary    `json:"numbering_summary"`
+	RarityBreakdown          []RarityBreakdown   `json:"rarity_breakdown"`
+	PricingUpdatedAt         string              `json:"pricing_updated_at"`
+	SKUUpdatedAt             string              `json:"sku_updated_at"`
+	TopMarketCards           []TopMarketCard     `json:"top_market_cards"`
+	HighestValueRarity       *HighestValueRarity `json:"highest_value_rarity,omitempty"`
+	MarketSumEstimate        float64             `json:"market_sum_estimate"`
+	ProductKindFilterApplied ProductKindFilter   `json:"product_kind_filter_applied"`
+	MinMarketPriceApplied    *float64            `json:"min_market_price_applied,omitempty"`
+	HeuristicNotes           []string            `json:"heuristic_notes,omitempty"`
 }

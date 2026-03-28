@@ -121,6 +121,8 @@ Example prompt:
 
 > Show me all the ME: Ascended Heroes singles over $100 and make sure the pricing was updated today.
 
+For singles-style analytics queries, hosts should call `analyze_set_insights` with `product_kind_filter=single_like`, set `min_market_price` for price-threshold requests, and raise `top_n` when the user wants a longer singles list.
+
 Example Claude Desktop-style result captured on March 27, 2026:
 
 ![img.png](assets/claude_code.png)

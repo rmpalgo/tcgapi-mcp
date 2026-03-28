@@ -220,9 +220,11 @@ func (s *Server) setInsightsPrompt(ctx context.Context, req *mcp.GetPromptReques
 		"1. Resolve the game with list_categories if needed.",
 		fmt.Sprintf("2. Use search_sets with %q to find the best matching set.", setName),
 		"3. Use analyze_set_insights for the selected set.",
-		"4. Summarize set size, numbering patterns, rarity breakdown, top market cards, and highest_value_rarity.",
-		"5. Treat numbered_card_like_count and market_sum_estimate as heuristics and label them accordingly.",
-		"6. Cite pricing_updated_at and sku_updated_at when making recency-sensitive claims.",
+		"4. For singles-only style questions, call analyze_set_insights with product_kind_filter=single_like.",
+		"5. For threshold questions like over $100, also pass min_market_price=100 and raise top_n high enough to capture the full list.",
+		"6. Summarize set size, numbering patterns, rarity breakdown, top market cards, and highest_value_rarity.",
+		"7. Treat numbered_card_like_count, product_kind, and market_sum_estimate as heuristics and label them accordingly.",
+		"8. Cite pricing_updated_at and sku_updated_at when making recency-sensitive claims.",
 	}, "\n")
 
 	return promptResult("set-insights", text), nil
@@ -239,9 +241,11 @@ func (s *Server) valueDriversPrompt(ctx context.Context, req *mcp.GetPromptReque
 		"1. Resolve the game with list_categories if needed.",
 		fmt.Sprintf("2. Use search_sets with %q to find the target set.", setName),
 		"3. Use analyze_set_insights for the selected set.",
-		"4. Explain supported drivers using current data: rarity, numbering patterns, variant subtype pricing, and highest-value products.",
-		"5. Explicitly say that artist, illustration style, pull-rate math, booster-pack slotting, and sealed-versus-single economics are not directly modeled by the current API.",
-		"6. Treat market_sum_estimate as a derived estimate, not an official set valuation.",
+		"4. If the user wants singles rather than sealed products, call analyze_set_insights with product_kind_filter=single_like.",
+		"5. If the user wants a price threshold, add min_market_price and increase top_n as needed.",
+		"6. Explain supported drivers using current data: rarity, numbering patterns, variant subtype pricing, and highest-value products.",
+		"7. Explicitly say that artist, illustration style, pull-rate math, booster-pack slotting, and sealed-versus-single economics are not directly modeled by the current API.",
+		"8. Treat product_kind and market_sum_estimate as heuristics, not authoritative upstream classifications or valuations.",
 	}, "\n")
 
 	return promptResult("value-drivers", text), nil

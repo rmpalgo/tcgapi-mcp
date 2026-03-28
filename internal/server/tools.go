@@ -5,6 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rmpalgo/tcgapi-mcp/internal/analysis"
 	"github.com/rmpalgo/tcgapi-mcp/internal/catalog"
 	"github.com/rmpalgo/tcgapi-mcp/internal/domain"
 )
@@ -84,9 +85,11 @@ type summarizeReleaseCountsInput struct {
 }
 
 type analyzeSetInsightsInput struct {
-	Category string `json:"category" jsonschema:"game category name, alias, or numeric ID"`
-	SetID    int    `json:"set_id" jsonschema:"set ID from search_sets or the category sets resource"`
-	TopN     int    `json:"top_n,omitempty" jsonschema:"how many top market cards to return; defaults to 10"`
+	Category          string   `json:"category" jsonschema:"game category name, alias, or numeric ID"`
+	SetID             int      `json:"set_id" jsonschema:"set ID from search_sets or the category sets resource"`
+	TopN              int      `json:"top_n,omitempty" jsonschema:"how many top market cards to return; defaults to 10"`
+	ProductKindFilter string   `json:"product_kind_filter,omitempty" jsonschema:"optional product-kind filter; supported values are all and single_like"`
+	MinMarketPrice    *float64 `json:"min_market_price,omitempty" jsonschema:"optional minimum market price threshold for ranked outputs"`
 }
 
 func (s *Server) registerTools() {
@@ -172,18 +175,11 @@ func (s *Server) registerTools() {
 			return nil, getSetPricingOutput{}, err
 		}
 
-		pricing, err := s.api.SetPricing(ctx, categoryID, in.SetID, in.ProductID)
+		output, err := s.pricingOutput(ctx, categoryID, in.SetID, in.ProductID)
 		if err != nil {
 			return nil, getSetPricingOutput{}, err
 		}
-
-		return nil, getSetPricingOutput{
-			CategoryID: categoryID,
-			SetID:      in.SetID,
-			ProductID:  in.ProductID,
-			UpdatedAt:  pricing.UpdatedAt,
-			Prices:     pricing.Prices,
-		}, nil
+		return nil, output, nil
 	})
 
 	mcp.AddTool(s.raw, s.tools[4], func(ctx context.Context, req *mcp.CallToolRequest, in getSetSKUsInput) (*mcp.CallToolResult, getSetSKUsOutput, error) {
@@ -192,18 +188,11 @@ func (s *Server) registerTools() {
 			return nil, getSetSKUsOutput{}, err
 		}
 
-		skus, err := s.api.SetSKUs(ctx, categoryID, in.SetID, in.ProductID)
+		output, err := s.skuOutput(ctx, categoryID, in.SetID, in.ProductID)
 		if err != nil {
 			return nil, getSetSKUsOutput{}, err
 		}
-
-		return nil, getSetSKUsOutput{
-			CategoryID: categoryID,
-			SetID:      in.SetID,
-			ProductID:  in.ProductID,
-			UpdatedAt:  skus.UpdatedAt,
-			Products:   skus.Products,
-		}, nil
+		return nil, output, nil
 	})
 
 	mcp.AddTool(s.raw, s.tools[5], func(ctx context.Context, req *mcp.CallToolRequest, in summarizeReleaseCountsInput) (*mcp.CallToolResult, domain.ReleaseCountsSummary, error) {
@@ -234,7 +223,11 @@ func (s *Server) registerTools() {
 			return nil, domain.SetInsights{}, err
 		}
 
-		insights, err := s.analyzer.AnalyzeSetInsights(ctx, category, in.SetID, in.TopN)
+		insights, err := s.analyzer.AnalyzeSetInsights(ctx, category, in.SetID, analysis.SetInsightsOptions{
+			TopN:              in.TopN,
+			ProductKindFilter: domain.ProductKindFilter(in.ProductKindFilter),
+			MinMarketPrice:    in.MinMarketPrice,
+		})
 		if err != nil {
 			return nil, domain.SetInsights{}, err
 		}

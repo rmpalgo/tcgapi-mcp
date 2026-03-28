@@ -155,7 +155,10 @@ func TestAnalyzeSetInsightsSummarizesRarityNumberingAndValue(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	insights, err := analyzer.AnalyzeSetInsights(context.Background(), category, 100, 2)
+	insights, err := analyzer.AnalyzeSetInsights(context.Background(), category, 100, SetInsightsOptions{
+		TopN:              2,
+		ProductKindFilter: domain.ProductKindFilterAll,
+	})
 	if err != nil {
 		t.Fatalf("AnalyzeSetInsights() error = %v", err)
 	}
@@ -178,8 +181,14 @@ func TestAnalyzeSetInsightsSummarizesRarityNumberingAndValue(t *testing.T) {
 	if insights.TopMarketCards[0].ProductID != 10 || insights.TopMarketCards[0].Subtype != "Holofoil" {
 		t.Fatalf("TopMarketCards[0] = %+v, want product 10 Holofoil", insights.TopMarketCards[0])
 	}
+	if insights.TopMarketCards[0].ProductKind != domain.ProductKindSingleLike {
+		t.Fatalf("TopMarketCards[0].ProductKind = %q, want %q", insights.TopMarketCards[0].ProductKind, domain.ProductKindSingleLike)
+	}
 	if insights.HighestValueRarity == nil || insights.HighestValueRarity.Rarity != "Special Illustration Rare" {
 		t.Fatalf("HighestValueRarity = %+v, want Special Illustration Rare", insights.HighestValueRarity)
+	}
+	if insights.ProductKindFilterApplied != domain.ProductKindFilterAll {
+		t.Fatalf("ProductKindFilterApplied = %q, want %q", insights.ProductKindFilterApplied, domain.ProductKindFilterAll)
 	}
 	if !almostEqual(insights.MarketSumEstimate, 2194.62) {
 		t.Fatalf("MarketSumEstimate = %f, want 2194.62", insights.MarketSumEstimate)
@@ -192,6 +201,100 @@ func TestAnalyzeSetInsightsSummarizesRarityNumberingAndValue(t *testing.T) {
 	}
 	if got := len(insights.RarityBreakdown); got != 3 {
 		t.Fatalf("len(RarityBreakdown) = %d, want 3", got)
+	}
+}
+
+func TestAnalyzeSetInsightsSupportsSinglesFilteringAndThresholds(t *testing.T) {
+	t.Parallel()
+
+	category := domain.Category{ID: 3, Name: "Pokemon", DisplayName: "Pokemon"}
+	api := &fakeAPI{
+		categorySets: map[int][]domain.SetSummary{
+			3: {
+				{ID: 200, CategoryID: 3, Name: "Mega Evolution", Abbreviation: "ME01", PublishedOn: "2026-03-01", ProductCount: 5, SKUCount: 8},
+			},
+		},
+		products: map[setKey][]domain.Product{
+			{categoryID: 3, setID: 200}: {
+				{ID: 10, Name: "Umbreon ex", CleanName: "Umbreon ex", Number: "161/131", Rarity: "Special Illustration Rare"},
+				{ID: 20, Name: "Sylveon ex", CleanName: "Sylveon ex", Number: "156/131", Rarity: "Ultra Rare"},
+				{ID: 30, Name: "Mega Evolution Booster Box", CleanName: "Mega Evolution Booster Box"},
+				{ID: 40, Name: "Code Card - Mega Evolution Booster Pack", CleanName: "Code Card Mega Evolution Booster Pack", Rarity: "Code Card"},
+				{ID: 50, Name: "Mega Evolution Elite Trainer Box", CleanName: "Mega Evolution Elite Trainer Box"},
+			},
+		},
+		pricing: map[setKey]domain.PricingSnapshot{
+			{categoryID: 3, setID: 200}: {
+				UpdatedAt: "2026-03-27T10:00:00Z",
+				Prices: []domain.PricingResult{
+					{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(1356.29)}}},
+					{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(327.14)}}},
+					{ProductID: 30, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(2499.99)}}},
+					{ProductID: 40, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(150)}}},
+					{ProductID: 50, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(699.99)}}},
+				},
+			},
+		},
+		skus: map[setKey]domain.SKUSnapshot{
+			{categoryID: 3, setID: 200}: {
+				UpdatedAt: "2026-03-27T11:00:00Z",
+			},
+		},
+	}
+
+	analyzer, err := New(Dependencies{
+		API: api,
+		Categories: func(context.Context) ([]domain.Category, error) {
+			return []domain.Category{category}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	defaultInsights, err := analyzer.AnalyzeSetInsights(context.Background(), category, 200, SetInsightsOptions{TopN: 3})
+	if err != nil {
+		t.Fatalf("AnalyzeSetInsights(default) error = %v", err)
+	}
+	if defaultInsights.TopMarketCards[0].ProductID != 30 || defaultInsights.TopMarketCards[0].ProductKind != domain.ProductKindSealedLike {
+		t.Fatalf("default TopMarketCards[0] = %+v, want sealed booster box", defaultInsights.TopMarketCards[0])
+	}
+
+	minMarketPrice := 100.0
+	filteredInsights, err := analyzer.AnalyzeSetInsights(context.Background(), category, 200, SetInsightsOptions{
+		TopN:              10,
+		ProductKindFilter: domain.ProductKindFilterSingleLike,
+		MinMarketPrice:    &minMarketPrice,
+	})
+	if err != nil {
+		t.Fatalf("AnalyzeSetInsights(filtered) error = %v", err)
+	}
+
+	if filteredInsights.ProductKindFilterApplied != domain.ProductKindFilterSingleLike {
+		t.Fatalf("ProductKindFilterApplied = %q, want %q", filteredInsights.ProductKindFilterApplied, domain.ProductKindFilterSingleLike)
+	}
+	if filteredInsights.MinMarketPriceApplied == nil || *filteredInsights.MinMarketPriceApplied != minMarketPrice {
+		t.Fatalf("MinMarketPriceApplied = %+v, want %f", filteredInsights.MinMarketPriceApplied, minMarketPrice)
+	}
+	if got := len(filteredInsights.TopMarketCards); got != 2 {
+		t.Fatalf("len(TopMarketCards) = %d, want 2", got)
+	}
+	if filteredInsights.TopMarketCards[0].ProductID != 10 || filteredInsights.TopMarketCards[1].ProductID != 20 {
+		t.Fatalf("TopMarketCards = %+v, want Umbreon ex then Sylveon ex", filteredInsights.TopMarketCards)
+	}
+	for _, card := range filteredInsights.TopMarketCards {
+		if card.ProductKind != domain.ProductKindSingleLike {
+			t.Fatalf("TopMarketCard.ProductKind = %q, want %q", card.ProductKind, domain.ProductKindSingleLike)
+		}
+	}
+	if filteredInsights.HighestValueRarity == nil || filteredInsights.HighestValueRarity.ProductID != 10 || filteredInsights.HighestValueRarity.ProductKind != domain.ProductKindSingleLike {
+		t.Fatalf("HighestValueRarity = %+v, want Umbreon ex single_like", filteredInsights.HighestValueRarity)
+	}
+	if !almostEqual(filteredInsights.MarketSumEstimate, 1683.43) {
+		t.Fatalf("MarketSumEstimate = %f, want 1683.43", filteredInsights.MarketSumEstimate)
+	}
+	if got := len(filteredInsights.RarityBreakdown); got != 2 {
+		t.Fatalf("len(RarityBreakdown) = %d, want 2", got)
 	}
 }
 

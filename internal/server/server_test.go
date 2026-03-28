@@ -295,6 +295,12 @@ func TestPricingAndSKUsHonorProductID(t *testing.T) {
 	if pricing.Prices[0].ProductID != productID {
 		t.Fatalf("pricing.Prices[0].ProductID = %d, want %d", pricing.Prices[0].ProductID, productID)
 	}
+	if pricing.Prices[0].Product == nil {
+		t.Fatal("pricing.Prices[0].Product = nil, want joined product summary")
+	}
+	if pricing.Prices[0].Product.Name != "Time Walk" || pricing.Prices[0].Product.Number != "1" || pricing.Prices[0].Product.Rarity != "Rare" {
+		t.Fatalf("pricing.Prices[0].Product = %+v, want Time Walk #1 Rare", pricing.Prices[0].Product)
+	}
 	if len(api.pricingCalls) != 1 || api.pricingCalls[0].productID == nil || *api.pricingCalls[0].productID != productID {
 		t.Fatalf("pricing calls = %+v, want product_id=%d", api.pricingCalls, productID)
 	}
@@ -321,8 +327,79 @@ func TestPricingAndSKUsHonorProductID(t *testing.T) {
 	if skus.Products[0].ProductID != productID {
 		t.Fatalf("skus.Products[0].ProductID = %d, want %d", skus.Products[0].ProductID, productID)
 	}
+	if skus.Products[0].Product == nil {
+		t.Fatal("skus.Products[0].Product = nil, want joined product summary")
+	}
+	if skus.Products[0].Product.Name != "Time Walk" || skus.Products[0].Product.Number != "1" || skus.Products[0].Product.Rarity != "Rare" {
+		t.Fatalf("skus.Products[0].Product = %+v, want Time Walk #1 Rare", skus.Products[0].Product)
+	}
 	if len(api.skuCalls) != 1 || api.skuCalls[0].productID == nil || *api.skuCalls[0].productID != productID {
 		t.Fatalf("sku calls = %+v, want product_id=%d", api.skuCalls, productID)
+	}
+}
+
+func TestPricingAndSKUsJoinProductMetadataByProductID(t *testing.T) {
+	t.Parallel()
+
+	api := newFakeAPI()
+	set := setKey{categoryID: 1, setID: 100}
+	api.products[set] = []domain.Product{
+		{ID: 20, SetID: 100, Name: "Time Walk", SetName: "Alpha", Number: "1", Rarity: "Rare"},
+		{ID: 100, SetID: 100, Name: "Ancestral Recall", SetName: "Alpha", Number: "54", Rarity: "Rare"},
+	}
+	api.pricing[set] = domain.PricingSnapshot{
+		UpdatedAt: "2026-03-27T12:00:00Z",
+		Prices: []domain.PricingResult{
+			{ProductID: 100, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(9000)}}, Manapool: map[string]float64{}},
+			{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(5500)}}, Manapool: map[string]float64{}},
+		},
+	}
+	api.skus[set] = domain.SKUSnapshot{
+		UpdatedAt: "2026-03-27T13:00:00Z",
+		Products: []domain.SKUResult{
+			{ProductID: 100, SKUs: []domain.SKU{{ID: 1001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(9000)}}},
+			{ProductID: 20, SKUs: []domain.SKU{{ID: 2001, Condition: "NM", Variant: "N", Language: "en", Market: floatPtr(5500)}}},
+		},
+	}
+
+	_, clientSession, _ := newTestServerWithAPI(t, api)
+
+	pricingResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_set_pricing",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get_set_pricing) error = %v", err)
+	}
+
+	pricing := decodeStructured[getSetPricingOutput](t, pricingResult.StructuredContent)
+	if got := pricing.Prices[0].Product; got == nil || got.ID != 100 || got.Name != "Ancestral Recall" {
+		t.Fatalf("pricing.Prices[0].Product = %+v, want product 100 Ancestral Recall", got)
+	}
+	if got := pricing.Prices[1].Product; got == nil || got.ID != 20 || got.Name != "Time Walk" {
+		t.Fatalf("pricing.Prices[1].Product = %+v, want product 20 Time Walk", got)
+	}
+
+	skuResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_set_skus",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get_set_skus) error = %v", err)
+	}
+
+	skus := decodeStructured[getSetSKUsOutput](t, skuResult.StructuredContent)
+	if got := skus.Products[0].Product; got == nil || got.ID != 100 || got.Name != "Ancestral Recall" {
+		t.Fatalf("skus.Products[0].Product = %+v, want product 100 Ancestral Recall", got)
+	}
+	if got := skus.Products[1].Product; got == nil || got.ID != 20 || got.Name != "Time Walk" {
+		t.Fatalf("skus.Products[1].Product = %+v, want product 20 Time Walk", got)
 	}
 }
 
@@ -372,6 +449,67 @@ func TestAnalyticsToolsReturnDerivedSummaries(t *testing.T) {
 	}
 	if len(insights.TopMarketCards) != 2 {
 		t.Fatalf("len(TopMarketCards) = %d, want 2", len(insights.TopMarketCards))
+	}
+	if insights.ProductKindFilterApplied != domain.ProductKindFilterAll {
+		t.Fatalf("ProductKindFilterApplied = %q, want %q", insights.ProductKindFilterApplied, domain.ProductKindFilterAll)
+	}
+}
+
+func TestAnalyzeSetInsightsToolSupportsSinglesFiltering(t *testing.T) {
+	t.Parallel()
+
+	api := newFakeAPI()
+	set := setKey{categoryID: 1, setID: 100}
+	api.products[set] = []domain.Product{
+		{ID: 10, SetID: 100, Name: "Black Lotus", CleanName: "Black Lotus", Number: "233", Rarity: "Rare"},
+		{ID: 20, SetID: 100, Name: "Time Walk", CleanName: "Time Walk", Number: "1", Rarity: "Rare"},
+		{ID: 30, SetID: 100, Name: "Alpha Booster Box", CleanName: "Alpha Booster Box"},
+		{ID: 40, SetID: 100, Name: "Code Card - Alpha Booster Pack", CleanName: "Code Card Alpha Booster Pack", Rarity: "Code Card"},
+	}
+	api.pricing[set] = domain.PricingSnapshot{
+		UpdatedAt: "2026-03-27T12:00:00Z",
+		Prices: []domain.PricingResult{
+			{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(11000)}}, Manapool: map[string]float64{}},
+			{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(5500)}}, Manapool: map[string]float64{}},
+			{ProductID: 30, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(15000)}}, Manapool: map[string]float64{}},
+			{ProductID: 40, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(200)}}, Manapool: map[string]float64{}},
+		},
+	}
+
+	_, clientSession, _ := newTestServerWithAPI(t, api)
+
+	minMarketPrice := 1000.0
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category":            "1",
+			"set_id":              100,
+			"top_n":               10,
+			"product_kind_filter": "single_like",
+			"min_market_price":    minMarketPrice,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights filtered) error = %v", err)
+	}
+
+	insights := decodeStructured[domain.SetInsights](t, result.StructuredContent)
+	if insights.ProductKindFilterApplied != domain.ProductKindFilterSingleLike {
+		t.Fatalf("ProductKindFilterApplied = %q, want %q", insights.ProductKindFilterApplied, domain.ProductKindFilterSingleLike)
+	}
+	if insights.MinMarketPriceApplied == nil || *insights.MinMarketPriceApplied != minMarketPrice {
+		t.Fatalf("MinMarketPriceApplied = %+v, want %f", insights.MinMarketPriceApplied, minMarketPrice)
+	}
+	if got := len(insights.TopMarketCards); got != 2 {
+		t.Fatalf("len(TopMarketCards) = %d, want 2", got)
+	}
+	if insights.TopMarketCards[0].ProductID != 10 || insights.TopMarketCards[1].ProductID != 20 {
+		t.Fatalf("TopMarketCards = %+v, want Black Lotus then Time Walk", insights.TopMarketCards)
+	}
+	for _, card := range insights.TopMarketCards {
+		if card.ProductKind != domain.ProductKindSingleLike {
+			t.Fatalf("TopMarketCard.ProductKind = %q, want %q", card.ProductKind, domain.ProductKindSingleLike)
+		}
 	}
 }
 
@@ -446,6 +584,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	if pricingValue.UpdatedAt != "2026-03-27T12:00:00Z" {
 		t.Fatalf("pricingValue.UpdatedAt = %q, want 2026-03-27T12:00:00Z", pricingValue.UpdatedAt)
 	}
+	if pricingValue.Prices[0].Product == nil || pricingValue.Prices[0].Product.Name != "Black Lotus" {
+		t.Fatalf("pricingValue.Prices[0].Product = %+v, want Black Lotus summary", pricingValue.Prices[0].Product)
+	}
 
 	skus, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/sets/100/skus"})
 	if err != nil {
@@ -458,6 +599,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	if skusValue.UpdatedAt != "2026-03-27T13:00:00Z" {
 		t.Fatalf("skusValue.UpdatedAt = %q, want 2026-03-27T13:00:00Z", skusValue.UpdatedAt)
 	}
+	if skusValue.Products[0].Product == nil || skusValue.Products[0].Product.Name != "Black Lotus" {
+		t.Fatalf("skusValue.Products[0].Product = %+v, want Black Lotus summary", skusValue.Products[0].Product)
+	}
 
 	insights, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///1/sets/100/insights"})
 	if err != nil {
@@ -466,6 +610,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	insightsValue := decodeResource[domain.SetInsights](t, insights)
 	if insightsValue.Set.Name != "Alpha" {
 		t.Fatalf("insightsValue.Set.Name = %q, want Alpha", insightsValue.Set.Name)
+	}
+	if insightsValue.ProductKindFilterApplied != domain.ProductKindFilterAll {
+		t.Fatalf("insightsValue.ProductKindFilterApplied = %q, want %q", insightsValue.ProductKindFilterApplied, domain.ProductKindFilterAll)
 	}
 }
 
@@ -526,6 +673,26 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 		}
 	}
 
+	setInsights, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name: "set-insights",
+		Arguments: map[string]string{
+			"set_name": "Alpha",
+			"game":     "mtg",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt(set-insights) error = %v", err)
+	}
+	setInsightsContent, ok := setInsights.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("set-insights content type = %T, want *mcp.TextContent", setInsights.Messages[0].Content)
+	}
+	for _, needle := range []string{"analyze_set_insights", "product_kind_filter=single_like", "min_market_price=100", "top_n"} {
+		if !strings.Contains(setInsightsContent.Text, needle) {
+			t.Fatalf("set-insights prompt missing %q: %s", needle, setInsightsContent.Text)
+		}
+	}
+
 	valueDrivers, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
 		Name: "value-drivers",
 		Arguments: map[string]string{
@@ -540,7 +707,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	if !ok {
 		t.Fatalf("value-drivers content type = %T, want *mcp.TextContent", valueDrivers.Messages[0].Content)
 	}
-	for _, needle := range []string{"analyze_set_insights", "artist", "illustration"} {
+	for _, needle := range []string{"analyze_set_insights", "artist", "illustration", "product_kind_filter=single_like", "min_market_price"} {
 		if !strings.Contains(valueDriversContent.Text, needle) {
 			t.Fatalf("value-drivers prompt missing %q: %s", needle, valueDriversContent.Text)
 		}
