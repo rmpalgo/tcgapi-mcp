@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/rmpalgo/tcgapi-mcp/internal/analysis"
+	"github.com/rmpalgo/tcgapi-mcp/internal/domain"
 )
 
 func (s *Server) registerResources() {
@@ -165,37 +168,30 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 		if err != nil {
 			return nil, err
 		}
-		return s.analyzer.AnalyzeSetInsights(ctx, category, setID, 10)
+		return s.analyzer.AnalyzeSetInsights(ctx, category, setID, analysis.SetInsightsOptions{
+			TopN:              10,
+			ProductKindFilter: domain.ProductKindFilterAll,
+		})
 	case len(parts) == 4 && parts[1] == "sets" && parts[3] == "pricing":
 		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
 		if err != nil {
 			return nil, err
 		}
-		pricing, err := s.api.SetPricing(ctx, categoryID, setID, nil)
+		output, err := s.pricingOutput(ctx, categoryID, setID, nil)
 		if err != nil {
 			return nil, err
 		}
-		return getSetPricingOutput{
-			CategoryID: categoryID,
-			SetID:      setID,
-			UpdatedAt:  pricing.UpdatedAt,
-			Prices:     pricing.Prices,
-		}, nil
+		return output, nil
 	case len(parts) == 4 && parts[1] == "sets" && parts[3] == "skus":
 		categoryID, setID, err := parseCategorySetParts(parts[0], parts[2], rawURI)
 		if err != nil {
 			return nil, err
 		}
-		skus, err := s.api.SetSKUs(ctx, categoryID, setID, nil)
+		output, err := s.skuOutput(ctx, categoryID, setID, nil)
 		if err != nil {
 			return nil, err
 		}
-		return getSetSKUsOutput{
-			CategoryID: categoryID,
-			SetID:      setID,
-			UpdatedAt:  skus.UpdatedAt,
-			Products:   skus.Products,
-		}, nil
+		return output, nil
 	default:
 		return nil, mcp.ResourceNotFoundError(rawURI)
 	}

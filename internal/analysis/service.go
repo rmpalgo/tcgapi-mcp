@@ -14,10 +14,16 @@ import (
 
 type Service interface {
 	SummarizeReleaseCounts(context.Context, *domain.Category, int, *int, bool) (domain.ReleaseCountsSummary, error)
-	AnalyzeSetInsights(context.Context, domain.Category, int, int) (domain.SetInsights, error)
+	AnalyzeSetInsights(context.Context, domain.Category, int, SetInsightsOptions) (domain.SetInsights, error)
 }
 
 type CategoryProvider func(context.Context) ([]domain.Category, error)
+
+type SetInsightsOptions struct {
+	TopN              int
+	ProductKindFilter domain.ProductKindFilter
+	MinMarketPrice    *float64
+}
 
 type Dependencies struct {
 	API        tcgapi.API
@@ -121,9 +127,10 @@ func (a *Analyzer) SummarizeReleaseCounts(ctx context.Context, category *domain.
 	}, nil
 }
 
-func (a *Analyzer) AnalyzeSetInsights(ctx context.Context, category domain.Category, setID int, topN int) (domain.SetInsights, error) {
-	if topN <= 0 {
-		topN = 10
+func (a *Analyzer) AnalyzeSetInsights(ctx context.Context, category domain.Category, setID int, options SetInsightsOptions) (domain.SetInsights, error) {
+	options, err := normalizeSetInsightsOptions(options)
+	if err != nil {
+		return domain.SetInsights{}, err
 	}
 
 	sets, err := a.api.CategorySets(ctx, category.ID)
@@ -149,9 +156,11 @@ func (a *Analyzer) AnalyzeSetInsights(ctx context.Context, category domain.Categ
 	}
 
 	perProductValue := buildProductValueMap(pricing)
-	rarityBreakdown := summarizeRarities(products, perProductValue)
+	productKinds := classifyProducts(products)
+	filteredProducts := filterInsightProducts(products, perProductValue, productKinds, options)
+	rarityBreakdown := summarizeRarities(filteredProducts, perProductValue)
 	numbering := summarizeNumbering(products)
-	topCards, marketSum := buildTopCards(products, perProductValue, topN)
+	topCards, marketSum := buildTopCards(filteredProducts, perProductValue, productKinds, options.TopN)
 	highestRarity := highestValueRarity(topCards)
 
 	return domain.SetInsights{
@@ -165,20 +174,41 @@ func (a *Analyzer) AnalyzeSetInsights(ctx context.Context, category domain.Categ
 			ProductCount:   setSummary.ProductCount,
 			SKUCount:       setSummary.SKUCount,
 		},
-		ProductCountTotal:     len(products),
-		NumberedCardLikeCount: countNumberedCardLike(products),
-		NumberingSummary:      numbering,
-		RarityBreakdown:       rarityBreakdown,
-		PricingUpdatedAt:      pricing.UpdatedAt,
-		SKUUpdatedAt:          skus.UpdatedAt,
-		TopMarketCards:        topCards,
-		HighestValueRarity:    highestRarity,
-		MarketSumEstimate:     marketSum,
+		ProductCountTotal:        len(products),
+		NumberedCardLikeCount:    countNumberedCardLike(products),
+		NumberingSummary:         numbering,
+		RarityBreakdown:          rarityBreakdown,
+		PricingUpdatedAt:         pricing.UpdatedAt,
+		SKUUpdatedAt:             skus.UpdatedAt,
+		TopMarketCards:           topCards,
+		HighestValueRarity:       highestRarity,
+		MarketSumEstimate:        marketSum,
+		ProductKindFilterApplied: options.ProductKindFilter,
+		MinMarketPriceApplied:    cloneFloat64(options.MinMarketPrice),
 		HeuristicNotes: []string{
 			"numbered_card_like_count is a heuristic that treats products with a collector number and/or rarity as card-like products.",
 			"market_sum_estimate is derived from the highest available TCGPlayer market subtype per product and is not an official set valuation.",
+			"product_kind is a heuristic classification derived from product number, rarity, and normalized product names; it is not an upstream taxonomy.",
 		},
 	}, nil
+}
+
+func normalizeSetInsightsOptions(options SetInsightsOptions) (SetInsightsOptions, error) {
+	if options.TopN <= 0 {
+		options.TopN = 10
+	}
+	if options.ProductKindFilter == "" {
+		options.ProductKindFilter = domain.ProductKindFilterAll
+	}
+	switch options.ProductKindFilter {
+	case domain.ProductKindFilterAll, domain.ProductKindFilterSingleLike:
+	default:
+		return SetInsightsOptions{}, fmt.Errorf("product_kind_filter must be one of %q or %q", domain.ProductKindFilterAll, domain.ProductKindFilterSingleLike)
+	}
+	if options.MinMarketPrice != nil && *options.MinMarketPrice < 0 {
+		return SetInsightsOptions{}, fmt.Errorf("min_market_price must be >= 0")
+	}
+	return options, nil
 }
 
 func publishedYear(value string) (int, bool) {
@@ -346,7 +376,7 @@ func summarizeNumbering(products []domain.Product) domain.NumberingSummary {
 	}
 }
 
-func buildTopCards(products []domain.Product, values map[int]productValue, topN int) ([]domain.TopMarketCard, float64) {
+func buildTopCards(products []domain.Product, values map[int]productValue, productKinds map[int]domain.ProductKind, topN int) ([]domain.TopMarketCard, float64) {
 	type valuedProduct struct {
 		product domain.Product
 		value   productValue
@@ -385,6 +415,7 @@ func buildTopCards(products []domain.Product, values map[int]productValue, topN 
 			Name:        current.product.Name,
 			Number:      current.product.Number,
 			Rarity:      normalizedRarity(current.product.Rarity),
+			ProductKind: productKinds[current.product.ID],
 			Subtype:     current.value.Subtype,
 			MarketPrice: current.value.Market,
 		})
@@ -404,8 +435,111 @@ func highestValueRarity(cards []domain.TopMarketCard) *domain.HighestValueRarity
 		ProductID:   top.ProductID,
 		ProductName: top.Name,
 		Number:      top.Number,
+		ProductKind: top.ProductKind,
 		Subtype:     top.Subtype,
 		MarketPrice: top.MarketPrice,
+	}
+}
+
+var sealedProductPhrases = []string{
+	"booster box",
+	"booster bundle",
+	"booster pack",
+	"pack art bundle",
+	"build and battle",
+	"elite trainer box",
+	"blister",
+	"tin",
+	"display",
+	"sleeved booster",
+	"half booster",
+	"case",
+}
+
+func classifyProducts(products []domain.Product) map[int]domain.ProductKind {
+	kinds := make(map[int]domain.ProductKind, len(products))
+	for _, product := range products {
+		kinds[product.ID] = classifyProduct(product)
+	}
+	return kinds
+}
+
+func classifyProduct(product domain.Product) domain.ProductKind {
+	rarity := strings.TrimSpace(product.Rarity)
+	name := normalizedProductName(product)
+
+	if strings.EqualFold(rarity, "Code Card") || strings.Contains(name, "code card") {
+		return domain.ProductKindCodeCard
+	}
+	if strings.TrimSpace(product.Number) == "" && containsAnyPhrase(name, sealedProductPhrases) {
+		return domain.ProductKindSealedLike
+	}
+	if strings.TrimSpace(product.Number) != "" || (rarity != "" && !strings.EqualFold(rarity, "Code Card")) {
+		return domain.ProductKindSingleLike
+	}
+	return domain.ProductKindUnknown
+}
+
+func normalizedProductName(product domain.Product) string {
+	value := product.CleanName
+	if strings.TrimSpace(value) == "" {
+		value = product.Name
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(value))
+	lastSpace := false
+	for _, r := range strings.ToLower(value) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			lastSpace = false
+			continue
+		}
+		if lastSpace {
+			continue
+		}
+		builder.WriteByte(' ')
+		lastSpace = true
+	}
+
+	return strings.TrimSpace(builder.String())
+}
+
+func containsAnyPhrase(value string, phrases []string) bool {
+	padded := " " + value + " "
+	for _, phrase := range phrases {
+		if strings.Contains(padded, " "+phrase+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+func filterInsightProducts(products []domain.Product, values map[int]productValue, productKinds map[int]domain.ProductKind, options SetInsightsOptions) []domain.Product {
+	filtered := make([]domain.Product, 0, len(products))
+	for _, product := range products {
+		if !matchesProductKindFilter(productKinds[product.ID], options.ProductKindFilter) {
+			continue
+		}
+		if options.MinMarketPrice != nil {
+			value, ok := values[product.ID]
+			if !ok || value.Market < *options.MinMarketPrice {
+				continue
+			}
+		}
+		filtered = append(filtered, product)
+	}
+	return filtered
+}
+
+func matchesProductKindFilter(kind domain.ProductKind, filter domain.ProductKindFilter) bool {
+	switch filter {
+	case domain.ProductKindFilterAll:
+		return true
+	case domain.ProductKindFilterSingleLike:
+		return kind == domain.ProductKindSingleLike
+	default:
+		return true
 	}
 }
 
