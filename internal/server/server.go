@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rmpalgo/tcgapi-mcp/internal/analysis"
 	"github.com/rmpalgo/tcgapi-mcp/internal/buildinfo"
 	"github.com/rmpalgo/tcgapi-mcp/internal/catalog"
 	"github.com/rmpalgo/tcgapi-mcp/internal/tcgapi"
@@ -16,6 +17,7 @@ import (
 type Dependencies struct {
 	Logger   *slog.Logger
 	API      tcgapi.API
+	Analyzer analysis.Service
 	Resolver catalog.Resolver
 	PageSize int
 	Build    buildinfo.Info
@@ -24,6 +26,7 @@ type Dependencies struct {
 type Server struct {
 	logger            *slog.Logger
 	api               tcgapi.API
+	analyzer          analysis.Service
 	resolver          catalog.Resolver
 	pageSize          int
 	raw               *mcp.Server
@@ -40,6 +43,9 @@ func New(d Dependencies) (*Server, error) {
 	if d.API == nil {
 		return nil, fmt.Errorf("server API dependency is required")
 	}
+	if d.Analyzer == nil {
+		return nil, fmt.Errorf("server analyzer dependency is required")
+	}
 	if d.Resolver == nil {
 		return nil, fmt.Errorf("server resolver dependency is required")
 	}
@@ -50,6 +56,7 @@ func New(d Dependencies) (*Server, error) {
 	s := &Server{
 		logger:   d.Logger,
 		api:      d.API,
+		analyzer: d.Analyzer,
 		resolver: d.Resolver,
 		pageSize: d.PageSize,
 		raw: mcp.NewServer(&mcp.Implementation{
