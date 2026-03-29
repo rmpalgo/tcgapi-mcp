@@ -90,6 +90,7 @@ type analyzeSetInsightsInput struct {
 	TopN              int      `json:"top_n,omitempty" jsonschema:"how many top market cards to return; defaults to 10"`
 	ProductKindFilter string   `json:"product_kind_filter,omitempty" jsonschema:"optional product-kind filter; supported values are all and single_like"`
 	MinMarketPrice    *float64 `json:"min_market_price,omitempty" jsonschema:"optional minimum market price threshold for ranked outputs"`
+	Fields            []string `json:"fields,omitempty" jsonschema:"optional analysis sections for token-efficient responses; supported values are numbering_summary, rarity_breakdown, top_market_cards, highest_value_rarity, market_sum_estimate, heuristic_notes"`
 }
 
 func (s *Server) registerTools() {
@@ -120,7 +121,7 @@ func (s *Server) registerTools() {
 		},
 		{
 			Name:        "analyze_set_insights",
-			Description: "Derive set-level insights such as rarity counts, numbering patterns, top market cards, and a market-sum estimate for a set.",
+			Description: "Derive set-level insights such as rarity counts, numbering patterns, top market cards, and a market-sum estimate for a set. Omit fields for the full payload, or pass fields to return only specific analysis sections while keeping the core metadata.",
 		},
 	}
 
@@ -217,10 +218,14 @@ func (s *Server) registerTools() {
 		return nil, summary, nil
 	})
 
-	mcp.AddTool(s.raw, s.tools[6], func(ctx context.Context, req *mcp.CallToolRequest, in analyzeSetInsightsInput) (*mcp.CallToolResult, domain.SetInsights, error) {
+	mcp.AddTool(s.raw, s.tools[6], func(ctx context.Context, req *mcp.CallToolRequest, in analyzeSetInsightsInput) (*mcp.CallToolResult, analyzeSetInsightsOutput, error) {
 		category, err := s.resolver.ResolveCategory(in.Category)
 		if err != nil {
-			return nil, domain.SetInsights{}, err
+			return nil, analyzeSetInsightsOutput{}, err
+		}
+		fieldSelection, err := parseAnalyzeSetInsightsFields(in.Fields)
+		if err != nil {
+			return nil, analyzeSetInsightsOutput{}, err
 		}
 
 		insights, err := s.analyzer.AnalyzeSetInsights(ctx, category, in.SetID, analysis.SetInsightsOptions{
@@ -229,9 +234,9 @@ func (s *Server) registerTools() {
 			MinMarketPrice:    in.MinMarketPrice,
 		})
 		if err != nil {
-			return nil, domain.SetInsights{}, err
+			return nil, analyzeSetInsightsOutput{}, err
 		}
-		return nil, insights, nil
+		return nil, newAnalyzeSetInsightsOutput(insights, fieldSelection), nil
 	})
 }
 
