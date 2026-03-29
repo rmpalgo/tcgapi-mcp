@@ -121,7 +121,7 @@ Example prompt:
 
 > Show me all the ME: Ascended Heroes singles over $100 and make sure the pricing was updated today.
 
-For singles-style analytics queries, hosts should call `analyze_set_insights` with `product_kind_filter=single_like`, set `min_market_price` for price-threshold requests, and raise `top_n` when the user wants a longer singles list.
+For singles-style analytics queries, hosts should call `analyze_set_insights` with `product_kind_filter=single_like`, set `min_market_price` for price-threshold requests, raise `top_n` when the user wants a longer singles list, and use `fields=["top_market_cards"]` or `fields=["top_market_cards","market_sum_estimate"]` for token-efficient ranking responses. Omit `fields` when the user wants the full set overview payload.
 
 Example Claude Desktop-style result captured on March 27, 2026:
 
@@ -216,6 +216,7 @@ Current transport support:
 - pricing and SKU responses include top-level `updated_at`
 - `tcg:///meta` exposes overall upstream freshness and dataset counts
 - release-count and set-insights outputs are deterministic summaries computed from current API data
+- `analyze_set_insights` accepts optional `fields` to return only selected analysis sections while keeping the canonical `tcg:///{categoryId}/sets/{setId}/insights` resource unchanged
 
 ## Freshness and Data Guidance
 

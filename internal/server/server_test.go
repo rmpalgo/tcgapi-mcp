@@ -444,6 +444,9 @@ func TestAnalyticsToolsReturnDerivedSummaries(t *testing.T) {
 	if insights.Set.Name != "Alpha" {
 		t.Fatalf("Set.Name = %q, want Alpha", insights.Set.Name)
 	}
+	if got := len(insights.HeuristicNotes); got != 3 {
+		t.Fatalf("len(HeuristicNotes) = %d, want 3", got)
+	}
 	if insights.PricingUpdatedAt != "2026-03-27T12:00:00Z" {
 		t.Fatalf("PricingUpdatedAt = %q, want 2026-03-27T12:00:00Z", insights.PricingUpdatedAt)
 	}
@@ -510,6 +513,199 @@ func TestAnalyzeSetInsightsToolSupportsSinglesFiltering(t *testing.T) {
 		if card.ProductKind != domain.ProductKindSingleLike {
 			t.Fatalf("TopMarketCard.ProductKind = %q, want %q", card.ProductKind, domain.ProductKindSingleLike)
 		}
+	}
+}
+
+func TestAnalyzeSetInsightsToolSupportsFieldSelection(t *testing.T) {
+	t.Parallel()
+
+	_, clientSession, _ := newTestServer(t)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+			"top_n":    2,
+			"fields":   []string{"top_market_cards", "top_market_cards"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights selective) error = %v", err)
+	}
+
+	insights := decodeStructured[map[string]any](t, result.StructuredContent)
+	assertContainsKeys(t, insights,
+		"set",
+		"product_count_total",
+		"numbered_card_like_count",
+		"pricing_updated_at",
+		"sku_updated_at",
+		"top_market_cards",
+		"product_kind_filter_applied",
+	)
+	assertOmitsKeys(t, insights,
+		"numbering_summary",
+		"rarity_breakdown",
+		"highest_value_rarity",
+		"market_sum_estimate",
+		"heuristic_notes",
+		"min_market_price_applied",
+	)
+
+	topCards, ok := insights["top_market_cards"].([]any)
+	if !ok {
+		t.Fatalf("top_market_cards type = %T, want []any", insights["top_market_cards"])
+	}
+	if got := len(topCards); got != 2 {
+		t.Fatalf("len(top_market_cards) = %d, want 2", got)
+	}
+}
+
+func TestAnalyzeSetInsightsToolSupportsMetadataOnlyFieldSelection(t *testing.T) {
+	t.Parallel()
+
+	_, clientSession, _ := newTestServer(t)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+			"fields":   []string{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights metadata-only) error = %v", err)
+	}
+
+	insights := decodeStructured[map[string]any](t, result.StructuredContent)
+	assertContainsKeys(t, insights,
+		"set",
+		"product_count_total",
+		"numbered_card_like_count",
+		"pricing_updated_at",
+		"sku_updated_at",
+		"product_kind_filter_applied",
+	)
+	assertOmitsKeys(t, insights,
+		"numbering_summary",
+		"rarity_breakdown",
+		"top_market_cards",
+		"highest_value_rarity",
+		"market_sum_estimate",
+		"heuristic_notes",
+		"min_market_price_applied",
+	)
+}
+
+func TestAnalyzeSetInsightsToolRejectsUnsupportedFields(t *testing.T) {
+	t.Parallel()
+
+	_, clientSession, _ := newTestServer(t)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+			"fields":   []string{"top_market_cards", "unknown_field"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights invalid fields) transport error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("result.IsError = %v, want true", result.IsError)
+	}
+	if got := len(result.Content); got != 1 {
+		t.Fatalf("len(result.Content) = %d, want 1", got)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("result.Content[0] type = %T, want *mcp.TextContent", result.Content[0])
+	}
+	if !strings.Contains(text.Text, "unsupported values [unknown_field]") {
+		t.Fatalf("content = %q, want unsupported values detail", text.Text)
+	}
+	if !strings.Contains(text.Text, "supported values are [numbering_summary, rarity_breakdown, top_market_cards, highest_value_rarity, market_sum_estimate, heuristic_notes]") {
+		t.Fatalf("content = %q, want supported fields list", text.Text)
+	}
+}
+
+func TestAnalyzeSetInsightsToolAppliesFiltersWithSelectedFields(t *testing.T) {
+	t.Parallel()
+
+	api := newFakeAPI()
+	set := setKey{categoryID: 1, setID: 100}
+	api.products[set] = []domain.Product{
+		{ID: 10, SetID: 100, Name: "Black Lotus", CleanName: "Black Lotus", Number: "233", Rarity: "Rare"},
+		{ID: 20, SetID: 100, Name: "Time Walk", CleanName: "Time Walk", Number: "1", Rarity: "Rare"},
+		{ID: 30, SetID: 100, Name: "Alpha Booster Box", CleanName: "Alpha Booster Box"},
+		{ID: 40, SetID: 100, Name: "Code Card - Alpha Booster Pack", CleanName: "Code Card Alpha Booster Pack", Rarity: "Code Card"},
+	}
+	api.pricing[set] = domain.PricingSnapshot{
+		UpdatedAt: "2026-03-27T12:00:00Z",
+		Prices: []domain.PricingResult{
+			{ProductID: 10, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(11000)}}, Manapool: map[string]float64{}},
+			{ProductID: 20, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(5500)}}, Manapool: map[string]float64{}},
+			{ProductID: 30, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(15000)}}, Manapool: map[string]float64{}},
+			{ProductID: 40, Subtypes: map[string]domain.Price{"Normal": {Market: floatPtr(200)}}, Manapool: map[string]float64{}},
+		},
+	}
+
+	_, clientSession, _ := newTestServerWithAPI(t, api)
+
+	minMarketPrice := 1000.0
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category":            "1",
+			"set_id":              100,
+			"top_n":               10,
+			"product_kind_filter": "single_like",
+			"min_market_price":    minMarketPrice,
+			"fields":              []string{"top_market_cards", "market_sum_estimate"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights filtered selective) error = %v", err)
+	}
+
+	insights := decodeStructured[map[string]any](t, result.StructuredContent)
+	assertContainsKeys(t, insights,
+		"top_market_cards",
+		"market_sum_estimate",
+		"product_kind_filter_applied",
+		"min_market_price_applied",
+	)
+	assertOmitsKeys(t, insights,
+		"numbering_summary",
+		"rarity_breakdown",
+		"highest_value_rarity",
+		"heuristic_notes",
+	)
+
+	if got := insights["product_kind_filter_applied"]; got != string(domain.ProductKindFilterSingleLike) {
+		t.Fatalf("product_kind_filter_applied = %v, want %q", got, domain.ProductKindFilterSingleLike)
+	}
+	if got := insights["min_market_price_applied"]; got != minMarketPrice {
+		t.Fatalf("min_market_price_applied = %v, want %f", got, minMarketPrice)
+	}
+
+	topCards, ok := insights["top_market_cards"].([]any)
+	if !ok {
+		t.Fatalf("top_market_cards type = %T, want []any", insights["top_market_cards"])
+	}
+	if got := len(topCards); got != 2 {
+		t.Fatalf("len(top_market_cards) = %d, want 2", got)
+	}
+	firstCard, ok := topCards[0].(map[string]any)
+	if !ok {
+		t.Fatalf("top_market_cards[0] type = %T, want map[string]any", topCards[0])
+	}
+	if got := firstCard["product_id"]; got != float64(10) {
+		t.Fatalf("top_market_cards[0].product_id = %v, want 10", got)
 	}
 }
 
@@ -611,6 +807,9 @@ func TestResourcesReadJSON(t *testing.T) {
 	if insightsValue.Set.Name != "Alpha" {
 		t.Fatalf("insightsValue.Set.Name = %q, want Alpha", insightsValue.Set.Name)
 	}
+	if got := len(insightsValue.HeuristicNotes); got != 3 {
+		t.Fatalf("len(insightsValue.HeuristicNotes) = %d, want 3", got)
+	}
 	if insightsValue.ProductKindFilterApplied != domain.ProductKindFilterAll {
 		t.Fatalf("insightsValue.ProductKindFilterApplied = %q, want %q", insightsValue.ProductKindFilterApplied, domain.ProductKindFilterAll)
 	}
@@ -687,7 +886,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	if !ok {
 		t.Fatalf("set-insights content type = %T, want *mcp.TextContent", setInsights.Messages[0].Content)
 	}
-	for _, needle := range []string{"analyze_set_insights", "product_kind_filter=single_like", "min_market_price=100", "top_n"} {
+	for _, needle := range []string{"analyze_set_insights", "product_kind_filter=single_like", "min_market_price=100", "top_n", "fields=[\"top_market_cards\"]", "omit fields"} {
 		if !strings.Contains(setInsightsContent.Text, needle) {
 			t.Fatalf("set-insights prompt missing %q: %s", needle, setInsightsContent.Text)
 		}
@@ -707,7 +906,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	if !ok {
 		t.Fatalf("value-drivers content type = %T, want *mcp.TextContent", valueDrivers.Messages[0].Content)
 	}
-	for _, needle := range []string{"analyze_set_insights", "artist", "illustration", "product_kind_filter=single_like", "min_market_price"} {
+	for _, needle := range []string{"analyze_set_insights", "fields=[\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"]", "artist", "illustration", "product_kind_filter=single_like", "min_market_price"} {
 		if !strings.Contains(valueDriversContent.Text, needle) {
 			t.Fatalf("value-drivers prompt missing %q: %s", needle, valueDriversContent.Text)
 		}
@@ -895,6 +1094,26 @@ func decodeStructured[T any](t *testing.T, value any) T {
 	}
 
 	return out
+}
+
+func assertContainsKeys(t *testing.T, value map[string]any, keys ...string) {
+	t.Helper()
+
+	for _, key := range keys {
+		if _, ok := value[key]; !ok {
+			t.Fatalf("structured content missing key %q: %+v", key, value)
+		}
+	}
+}
+
+func assertOmitsKeys(t *testing.T, value map[string]any, keys ...string) {
+	t.Helper()
+
+	for _, key := range keys {
+		if _, ok := value[key]; ok {
+			t.Fatalf("structured content unexpectedly contains key %q: %+v", key, value)
+		}
+	}
 }
 
 func decodeResource[T any](t *testing.T, result *mcp.ReadResourceResult) T {
