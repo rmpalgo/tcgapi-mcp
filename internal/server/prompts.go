@@ -219,12 +219,13 @@ func (s *Server) setInsightsPrompt(ctx context.Context, req *mcp.GetPromptReques
 		fmt.Sprintf("Use the tcgapi-mcp analytics capabilities to summarize set insights for %q in %q.", setName, game),
 		"1. Resolve the game with list_categories if needed.",
 		fmt.Sprintf("2. Use search_sets with %q to find the best matching set.", setName),
-		"3. Use analyze_set_insights for the selected set and omit fields when you need the full overview payload.",
+		"3. Use analyze_set_insights for the selected set and omit fields when you need the default overview payload.",
 		"4. For singles-only style questions, call analyze_set_insights with product_kind_filter=single_like.",
 		"5. For threshold or ranking questions, add min_market_price=100 as needed, raise top_n high enough to capture the list, and use fields=[\"top_market_cards\"] or [\"top_market_cards\",\"market_sum_estimate\"] for a narrower response.",
-		"6. Summarize set size, numbering patterns, rarity breakdown, top market cards, and highest_value_rarity.",
-		"7. Treat numbered_card_like_count, product_kind, and market_sum_estimate as heuristics and label them accordingly.",
-		"8. Cite pricing_updated_at and sku_updated_at when making recency-sensitive claims.",
+		"6. Read tcg:///meta/heuristics for the shared methodology notes, or add fields=[\"heuristic_notes\"] if you need them inline in the tool response.",
+		"7. Summarize set size, numbering patterns, rarity breakdown, top market cards, and highest_value_rarity.",
+		"8. Treat numbered_card_like_count, product_kind, and market_sum_estimate as heuristics and label them accordingly.",
+		"9. Cite pricing_updated_at and sku_updated_at when making recency-sensitive claims.",
 	}, "\n")
 
 	return promptResult("set-insights", text), nil
@@ -243,10 +244,11 @@ func (s *Server) valueDriversPrompt(ctx context.Context, req *mcp.GetPromptReque
 		"3. Use analyze_set_insights with fields=[\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"] for a token-efficient value summary.",
 		"4. If the user wants singles rather than sealed products, add product_kind_filter=single_like.",
 		"5. If the user wants a price threshold, add min_market_price and increase top_n as needed.",
-		"6. If the user explicitly asks for numbering or rarity structure, either include fields=[\"numbering_summary\",\"rarity_breakdown\",\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"] or omit fields for the full payload.",
-		"7. Explain supported drivers using current data: rarity, numbering patterns, variant subtype pricing, and highest-value products.",
-		"8. Explicitly say that artist, illustration style, pull-rate math, booster-pack slotting, and sealed-versus-single economics are not directly modeled by the current API.",
-		"9. Treat product_kind and market_sum_estimate as heuristics, not authoritative upstream classifications or valuations.",
+		"6. If the user explicitly asks for numbering or rarity structure, either include fields=[\"numbering_summary\",\"rarity_breakdown\",\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"] or omit fields for the default overview payload.",
+		"7. Read tcg:///meta/heuristics for the shared methodology notes, or add fields=[\"heuristic_notes\"] if you need them inline in the tool response.",
+		"8. Explain supported drivers using current data: rarity, numbering patterns, variant subtype pricing, and highest-value products.",
+		"9. Explicitly say that artist, illustration style, pull-rate math, booster-pack slotting, and sealed-versus-single economics are not directly modeled by the current API.",
+		"10. Treat product_kind and market_sum_estimate as heuristics, not authoritative upstream classifications or valuations.",
 	}, "\n")
 
 	return promptResult("value-drivers", text), nil

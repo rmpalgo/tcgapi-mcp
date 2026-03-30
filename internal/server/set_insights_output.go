@@ -42,7 +42,6 @@ type analyzeSetInsightsOutput struct {
 }
 
 type analyzeSetInsightsFieldSelection struct {
-	includeAll         bool
 	numberingSummary   bool
 	rarityBreakdown    bool
 	topMarketCards     bool
@@ -62,23 +61,23 @@ func newAnalyzeSetInsightsOutput(insights domain.SetInsights, selection analyzeS
 		MinMarketPriceApplied:    cloneFloat64Pointer(insights.MinMarketPriceApplied),
 	}
 
-	if selection.includeAll || selection.numberingSummary {
+	if selection.numberingSummary {
 		numbering := insights.NumberingSummary
 		output.NumberingSummary = &numbering
 	}
-	if selection.includeAll || selection.rarityBreakdown {
+	if selection.rarityBreakdown {
 		output.RarityBreakdown = cloneRarityBreakdown(insights.RarityBreakdown)
 	}
-	if selection.includeAll || selection.topMarketCards {
+	if selection.topMarketCards {
 		output.TopMarketCards = cloneTopMarketCards(insights.TopMarketCards)
 	}
-	if selection.includeAll || selection.highestValueRarity {
+	if selection.highestValueRarity {
 		output.HighestValueRarity = cloneHighestValueRarity(insights.HighestValueRarity)
 	}
-	if selection.includeAll || selection.marketSumEstimate {
+	if selection.marketSumEstimate {
 		output.MarketSumEstimate = float64Pointer(insights.MarketSumEstimate)
 	}
-	if selection.includeAll || selection.heuristicNotes {
+	if selection.heuristicNotes {
 		output.HeuristicNotes = cloneStrings(insights.HeuristicNotes)
 	}
 
@@ -87,7 +86,13 @@ func newAnalyzeSetInsightsOutput(insights domain.SetInsights, selection analyzeS
 
 func parseAnalyzeSetInsightsFields(fields []string) (analyzeSetInsightsFieldSelection, error) {
 	if fields == nil {
-		return analyzeSetInsightsFieldSelection{includeAll: true}, nil
+		return analyzeSetInsightsFieldSelection{
+			numberingSummary:   true,
+			rarityBreakdown:    true,
+			topMarketCards:     true,
+			highestValueRarity: true,
+			marketSumEstimate:  true,
+		}, nil
 	}
 
 	selection := analyzeSetInsightsFieldSelection{}

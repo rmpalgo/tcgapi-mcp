@@ -7,7 +7,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for tra
 This project is currently a read-only MCP server with:
 
 - 7 tools
-- 3 concrete resources
+- 4 concrete resources
 - 6 resource templates
 - 6 prompts
 - cross-platform release archives for macOS, Linux, and Windows
@@ -121,7 +121,7 @@ Example prompt:
 
 > Show me all the ME: Ascended Heroes singles over $100 and make sure the pricing was updated today.
 
-For singles-style analytics queries, hosts should call `analyze_set_insights` with `product_kind_filter=single_like`, set `min_market_price` for price-threshold requests, raise `top_n` when the user wants a longer singles list, and use `fields=["top_market_cards"]` or `fields=["top_market_cards","market_sum_estimate"]` for token-efficient ranking responses. Omit `fields` when the user wants the full set overview payload.
+For singles-style analytics queries, hosts should call `analyze_set_insights` with `product_kind_filter=single_like`, set `min_market_price` for price-threshold requests, raise `top_n` when the user wants a longer singles list, and use `fields=["top_market_cards"]` or `fields=["top_market_cards","market_sum_estimate"]` for token-efficient ranking responses. Omit `fields` when the user wants the default set overview payload, read `tcg:///meta/heuristics` for the shared methodology notes, or request `fields=["heuristic_notes"]` when those notes need to be inline.
 
 Example Claude Desktop-style result captured on March 27, 2026:
 
@@ -189,6 +189,7 @@ Current transport support:
 ### Resources
 
 - `tcg:///meta`
+- `tcg:///meta/heuristics`
 - `tcg:///categories`
 - `tcg:///analytics/releases-by-year`
 
@@ -215,8 +216,9 @@ Current transport support:
 - category inputs accept numeric IDs, category names, and aliases such as `Pokemon` or `mtg`
 - pricing and SKU responses include top-level `updated_at`
 - `tcg:///meta` exposes overall upstream freshness and dataset counts
+- `tcg:///meta/heuristics` exposes shared methodology notes for heuristic analytics fields
 - release-count and set-insights outputs are deterministic summaries computed from current API data
-- `analyze_set_insights` accepts optional `fields` to return only selected analysis sections while keeping the canonical `tcg:///{categoryId}/sets/{setId}/insights` resource unchanged
+- `analyze_set_insights` accepts optional `fields` to return only selected analysis sections while keeping the canonical `tcg:///{categoryId}/sets/{setId}/insights` resource unchanged; omitting `fields` returns the default overview payload without inline `heuristic_notes`
 
 ## Freshness and Data Guidance
 
