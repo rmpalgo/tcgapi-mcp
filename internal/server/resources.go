@@ -14,6 +14,14 @@ import (
 	"github.com/rmpalgo/tcgapi-mcp/internal/domain"
 )
 
+type heuristicsResourceOutput struct {
+	AnalyzeSetInsights analyzeSetInsightsHeuristicsOutput `json:"analyze_set_insights"`
+}
+
+type analyzeSetInsightsHeuristicsOutput struct {
+	HeuristicNotes []string `json:"heuristic_notes"`
+}
+
 func (s *Server) registerResources() {
 	s.resources = []*mcp.Resource{
 		{
@@ -26,6 +34,12 @@ func (s *Server) registerResources() {
 			Name:        "categories",
 			URI:         "tcg:///categories",
 			Description: "Full category list.",
+			MIMEType:    "application/json",
+		},
+		{
+			Name:        "meta-heuristics",
+			URI:         "tcg:///meta/heuristics",
+			Description: "Shared methodology notes for heuristic analytics fields.",
 			MIMEType:    "application/json",
 		},
 		{
@@ -115,6 +129,12 @@ func (s *Server) readResourceValue(ctx context.Context, rawURI string) (any, err
 	switch {
 	case len(parts) == 1 && parts[0] == "meta":
 		return s.api.Meta(ctx)
+	case len(parts) == 2 && parts[0] == "meta" && parts[1] == "heuristics":
+		return heuristicsResourceOutput{
+			AnalyzeSetInsights: analyzeSetInsightsHeuristicsOutput{
+				HeuristicNotes: analysis.SetInsightsHeuristicNotes(),
+			},
+		}, nil
 	case len(parts) == 1 && parts[0] == "categories":
 		categories := s.resolver.Categories()
 		if len(categories) == 0 {

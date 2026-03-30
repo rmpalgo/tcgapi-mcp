@@ -130,8 +130,8 @@ func TestNewRegistersSurface(t *testing.T) {
 	}
 
 	resources := collectResources(t, ctx, clientSession)
-	if got := len(resources); got != 3 {
-		t.Fatalf("len(resources) = %d, want 3", got)
+	if got := len(resources); got != 4 {
+		t.Fatalf("len(resources) = %d, want 4", got)
 	}
 
 	templates := collectResourceTemplates(t, ctx, clientSession)
@@ -440,21 +440,29 @@ func TestAnalyticsToolsReturnDerivedSummaries(t *testing.T) {
 		t.Fatalf("CallTool(analyze_set_insights) error = %v", err)
 	}
 
-	insights := decodeStructured[domain.SetInsights](t, insightsResult.StructuredContent)
-	if insights.Set.Name != "Alpha" {
-		t.Fatalf("Set.Name = %q, want Alpha", insights.Set.Name)
+	insights := decodeStructured[map[string]any](t, insightsResult.StructuredContent)
+	setValue, ok := insights["set"].(map[string]any)
+	if !ok {
+		t.Fatalf("set type = %T, want map[string]any", insights["set"])
 	}
-	if got := len(insights.HeuristicNotes); got != 3 {
-		t.Fatalf("len(HeuristicNotes) = %d, want 3", got)
+	if got := setValue["name"]; got != "Alpha" {
+		t.Fatalf("Set.Name = %v, want Alpha", got)
 	}
-	if insights.PricingUpdatedAt != "2026-03-27T12:00:00Z" {
-		t.Fatalf("PricingUpdatedAt = %q, want 2026-03-27T12:00:00Z", insights.PricingUpdatedAt)
+	if _, ok := insights["heuristic_notes"]; ok {
+		t.Fatalf("structured content unexpectedly contains heuristic_notes: %+v", insights)
 	}
-	if len(insights.TopMarketCards) != 2 {
-		t.Fatalf("len(TopMarketCards) = %d, want 2", len(insights.TopMarketCards))
+	if got := insights["pricing_updated_at"]; got != "2026-03-27T12:00:00Z" {
+		t.Fatalf("PricingUpdatedAt = %v, want 2026-03-27T12:00:00Z", got)
 	}
-	if insights.ProductKindFilterApplied != domain.ProductKindFilterAll {
-		t.Fatalf("ProductKindFilterApplied = %q, want %q", insights.ProductKindFilterApplied, domain.ProductKindFilterAll)
+	topCards, ok := insights["top_market_cards"].([]any)
+	if !ok {
+		t.Fatalf("top_market_cards type = %T, want []any", insights["top_market_cards"])
+	}
+	if got := len(topCards); got != 2 {
+		t.Fatalf("len(TopMarketCards) = %d, want 2", got)
+	}
+	if got := insights["product_kind_filter_applied"]; got != string(domain.ProductKindFilterAll) {
+		t.Fatalf("ProductKindFilterApplied = %v, want %q", got, domain.ProductKindFilterAll)
 	}
 }
 
@@ -599,6 +607,51 @@ func TestAnalyzeSetInsightsToolSupportsMetadataOnlyFieldSelection(t *testing.T) 
 	)
 }
 
+func TestAnalyzeSetInsightsToolSupportsExplicitHeuristicNotes(t *testing.T) {
+	t.Parallel()
+
+	_, clientSession, _ := newTestServer(t)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "analyze_set_insights",
+		Arguments: map[string]any{
+			"category": "1",
+			"set_id":   100,
+			"fields":   []string{"heuristic_notes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(analyze_set_insights heuristic notes) error = %v", err)
+	}
+
+	insights := decodeStructured[map[string]any](t, result.StructuredContent)
+	assertContainsKeys(t, insights,
+		"set",
+		"product_count_total",
+		"numbered_card_like_count",
+		"pricing_updated_at",
+		"sku_updated_at",
+		"product_kind_filter_applied",
+		"heuristic_notes",
+	)
+	assertOmitsKeys(t, insights,
+		"numbering_summary",
+		"rarity_breakdown",
+		"top_market_cards",
+		"highest_value_rarity",
+		"market_sum_estimate",
+		"min_market_price_applied",
+	)
+
+	notes, ok := insights["heuristic_notes"].([]any)
+	if !ok {
+		t.Fatalf("heuristic_notes type = %T, want []any", insights["heuristic_notes"])
+	}
+	if got := len(notes); got != 3 {
+		t.Fatalf("len(heuristic_notes) = %d, want 3", got)
+	}
+}
+
 func TestAnalyzeSetInsightsToolRejectsUnsupportedFields(t *testing.T) {
 	t.Parallel()
 
@@ -722,6 +775,15 @@ func TestResourcesReadJSON(t *testing.T) {
 	metaValue := decodeResource[domain.Meta](t, meta)
 	if metaValue.Version != "1.2.3" {
 		t.Fatalf("meta version = %q, want 1.2.3", metaValue.Version)
+	}
+
+	heuristics, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///meta/heuristics"})
+	if err != nil {
+		t.Fatalf("ReadResource(meta heuristics) error = %v", err)
+	}
+	heuristicsValue := decodeResource[heuristicsResourceOutput](t, heuristics)
+	if got := len(heuristicsValue.AnalyzeSetInsights.HeuristicNotes); got != 3 {
+		t.Fatalf("len(heuristicsValue.AnalyzeSetInsights.HeuristicNotes) = %d, want 3", got)
 	}
 
 	categories, err := clientSession.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tcg:///categories"})
@@ -886,7 +948,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	if !ok {
 		t.Fatalf("set-insights content type = %T, want *mcp.TextContent", setInsights.Messages[0].Content)
 	}
-	for _, needle := range []string{"analyze_set_insights", "product_kind_filter=single_like", "min_market_price=100", "top_n", "fields=[\"top_market_cards\"]", "omit fields"} {
+	for _, needle := range []string{"analyze_set_insights", "product_kind_filter=single_like", "min_market_price=100", "top_n", "fields=[\"top_market_cards\"]", "tcg:///meta/heuristics", "fields=[\"heuristic_notes\"]", "default overview"} {
 		if !strings.Contains(setInsightsContent.Text, needle) {
 			t.Fatalf("set-insights prompt missing %q: %s", needle, setInsightsContent.Text)
 		}
@@ -906,7 +968,7 @@ func TestPromptGetReturnsInstructions(t *testing.T) {
 	if !ok {
 		t.Fatalf("value-drivers content type = %T, want *mcp.TextContent", valueDrivers.Messages[0].Content)
 	}
-	for _, needle := range []string{"analyze_set_insights", "fields=[\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"]", "artist", "illustration", "product_kind_filter=single_like", "min_market_price"} {
+	for _, needle := range []string{"analyze_set_insights", "fields=[\"top_market_cards\",\"highest_value_rarity\",\"market_sum_estimate\"]", "artist", "illustration", "product_kind_filter=single_like", "min_market_price", "tcg:///meta/heuristics", "fields=[\"heuristic_notes\"]", "default overview"} {
 		if !strings.Contains(valueDriversContent.Text, needle) {
 			t.Fatalf("value-drivers prompt missing %q: %s", needle, valueDriversContent.Text)
 		}
